@@ -8,7 +8,8 @@ from pathlib import Path
 
 from vaultmind.ai.compiler import _deduplicate_concepts, compile_sources
 from vaultmind.commands.compile import _run_compile_async
-from vaultmind.core.raw_scanner import RawSourceRecord
+from vaultmind.core.manifest import read_manifest
+from vaultmind.core.raw_scanner import RawSourceRecord, scan_raw_sources
 from vaultmind.schemas import ConceptStatus, Manifest, WikiConceptEntry
 
 
@@ -71,6 +72,117 @@ def test_compile_sources_updates_existing_article_with_relative_path_raw_body(te
     assert result.articles_created == 0
     assert slug_to_urls == {"concept-a": [source.relative_path]}
     assert "Body text from raw-a" in provider.prompts[1]
+
+
+def test_compile_sources_preserves_existing_frontmatter_sources_on_update(test_config):
+    source = _raw_source(slug="raw-b", source_url="https://example.com/new-source")
+    old_source_url = "https://example.com/old-source"
+    article_dir = test_config.vault_path / test_config.folders.wiki / test_config.folders.wiki_concepts
+    article_dir.mkdir(parents=True, exist_ok=True)
+    article_path = article_dir / "concept-a.md"
+    article_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "title: Human Concept A",
+                "vaultmind: true",
+                "kind: concept",
+                "sources:",
+                f"  - {old_source_url}",
+                "---",
+                "",
+                "# Concept A",
+                "",
+                "Old content",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    triage = json.dumps(
+        {
+            "concepts": [
+                {
+                    "name": "Concept A",
+                    "status": "existing:concept-a",
+                    "description": "Existing concept with new source",
+                    "source_urls": [source.source_url],
+                    "merge_target": "concept-a",
+                }
+            ]
+        }
+    )
+    provider = StubProvider([triage, "# Concept A\n\nUpdated content"])
+
+    result, slug_to_urls = asyncio.run(
+        compile_sources(
+            [source],
+            Manifest(),
+            provider,
+            test_config.vault_path,
+            test_config.folders,
+        )
+    )
+
+    updated = article_path.read_text(encoding="utf-8")
+    assert result.articles_updated == 1
+    assert slug_to_urls == {"concept-a": [source.source_url]}
+    assert "title: Human Concept A" in updated
+    assert f"  - {old_source_url}" in updated
+    assert f"  - {source.source_url}" in updated
+
+
+def test_fixture_vault_compile_updates_existing_concept_and_preserves_sources(fixture_vault):
+    records = scan_raw_sources(fixture_vault)
+    source = next(
+        record
+        for record in records
+        if record.source_url == "https://blog.research.google/2023/03/encouraging-sparse-attention-in.html"
+    )
+    old_source_url = "https://lena-voita.github.io/posts/annotated_transformers/attention.html"
+
+    triage = json.dumps(
+        {
+            "concepts": [
+                {
+                    "name": "Attention Mechanisms",
+                    "status": "existing:attention-mechanisms",
+                    "description": "Existing attention concept expanded with sparse attention trade-offs",
+                    "source_urls": [source.source_url],
+                    "merge_target": "attention-mechanisms",
+                }
+            ]
+        }
+    )
+    provider = StubProvider([triage, "# Attention Mechanisms\n\nUpdated with sparse attention."])
+    manifest = read_manifest(fixture_vault.vault_path)
+
+    result, slug_to_urls = asyncio.run(
+        _run_compile_async(
+            [source],
+            manifest,
+            fixture_vault,
+            provider,
+            dry_run=False,
+        )
+    )
+
+    article_path = (
+        fixture_vault.vault_path
+        / fixture_vault.folders.wiki
+        / fixture_vault.folders.wiki_concepts
+        / "attention-mechanisms.md"
+    )
+    updated = article_path.read_text(encoding="utf-8")
+
+    assert result.articles_updated == 1
+    assert slug_to_urls == {"attention-mechanisms": [source.source_url]}
+    assert source.source_url in manifest.sources
+    assert manifest.sources[source.source_url].wiki_articles == ["attention-mechanisms"]
+    assert old_source_url in manifest.wiki_articles["attention-mechanisms"].source_urls
+    assert source.source_url in manifest.wiki_articles["attention-mechanisms"].source_urls
+    assert f"  - {old_source_url}" in updated
+    assert f"  - {source.source_url}" in updated
 
 
 def test_deduplicate_concepts_preserves_existing_status_when_response_omits_status():
