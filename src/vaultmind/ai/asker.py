@@ -18,7 +18,7 @@ from vaultmind.ai.prompts import (
 )
 from vaultmind.ai.providers.base import Provider
 from vaultmind.core.raw_scanner import RawSourceRecord, format_raw_source_packet
-from vaultmind.core.search import search_notes
+from vaultmind.core.search import SearchMatch, search_notes
 from vaultmind.core.vault_index import VaultNoteRecord, format_note_packet
 from vaultmind.core.writer import slugify, write_markdown_page
 
@@ -27,6 +27,7 @@ log = structlog.get_logger()
 MAX_ITERATIONS = 3
 MAX_CONTEXT_NOTES = 30
 MAX_CONTEXT_SOURCES = 20
+MIN_WIKI_CONTEXT_SCORE = 35.0
 
 
 @dataclass
@@ -124,8 +125,25 @@ def _initial_search(
     folders_raw: str,
 ) -> GatheredContext:
     """Perform initial search across wiki concepts and raw sources."""
-    wiki_notes: list[VaultNoteRecord] = []
+    wiki_notes = _load_wiki_concepts(vault_path, folders_wiki, folders_wiki_concepts)
+    wiki_matches = search_notes(wiki_notes, question, limit=MAX_CONTEXT_NOTES) if wiki_notes else []
+    matched_wiki_notes = [match.note for match in wiki_matches]
 
+    raw_sources = (
+        []
+        if _wiki_context_is_sufficient(wiki_matches)
+        else _search_raw_sources(question, vault_path, folders_raw)
+    )
+    return GatheredContext(wiki_notes=matched_wiki_notes, raw_sources=raw_sources)
+
+
+def _load_wiki_concepts(
+    vault_path: Path,
+    folders_wiki: str,
+    folders_wiki_concepts: str,
+) -> list[VaultNoteRecord]:
+    """Load wiki concept pages as note records for ask-time search."""
+    wiki_notes: list[VaultNoteRecord] = []
     wiki_concepts_dir = vault_path / folders_wiki / folders_wiki_concepts
     if wiki_concepts_dir.exists():
         for md_file in wiki_concepts_dir.glob("*.md"):
@@ -155,14 +173,12 @@ def _initial_search(
                 raw_frontmatter=frontmatter,
             ))
 
-    if wiki_notes:
-        matches = search_notes(wiki_notes, question, limit=MAX_CONTEXT_NOTES)
-        scored = {m.note.relative_path: m.score for m in matches}
-        wiki_notes.sort(key=lambda n: scored.get(n.relative_path, 0), reverse=True)
-        wiki_notes = wiki_notes[:MAX_CONTEXT_NOTES]
+    return wiki_notes
 
-    raw_sources = [] if wiki_notes else _search_raw_sources(question, vault_path, folders_raw)
-    return GatheredContext(wiki_notes=wiki_notes, raw_sources=raw_sources)
+
+def _wiki_context_is_sufficient(matches: list[SearchMatch]) -> bool:
+    """Return True when wiki matches are strong enough to skip Raw fallback."""
+    return bool(matches) and matches[0].score >= MIN_WIKI_CONTEXT_SCORE
 
 
 def _follow_up_gap(
