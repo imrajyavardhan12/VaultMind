@@ -16,6 +16,7 @@ from pathlib import Path
 
 import structlog
 import typer
+import yaml
 
 from vaultmind.ai.compiler import CompileResult, compile_sources, rebuild_index
 from vaultmind.ai.providers import Provider, get_provider
@@ -170,11 +171,16 @@ async def _run_compile_async(
                 slug = article_path.stem
                 body = article_path.read_text(encoding="utf-8")
                 article_hash = content_hash(body)
-                # Find source URLs that fed this article
-                source_urls = [
+                # Find source URLs that fed this article, preserving any
+                # existing frontmatter provenance on the concept page.
+                manifest_source_urls = [
                     url for url, entry in manifest.sources.items()
                     if slug in entry.wiki_articles
                 ]
+                source_urls = _merge_source_urls(
+                    _extract_article_sources(article_path),
+                    manifest_source_urls,
+                )
                 upsert_wiki_article(
                     manifest,
                     slug=slug,
@@ -195,6 +201,56 @@ async def _run_compile_async(
         )
 
     return result, slug_to_urls
+
+
+def _extract_article_sources(article_path: Path) -> list[str]:
+    """Extract source URLs/keys from concept article frontmatter."""
+    try:
+        text = article_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    if not text.startswith("---"):
+        return []
+
+    end = text.find("---", 3)
+    if end == -1:
+        return []
+
+    try:
+        data = yaml.safe_load(text[3:end])
+    except yaml.YAMLError:
+        return []
+
+    if not isinstance(data, dict):
+        return []
+
+    sources = data.get("sources")
+    if isinstance(sources, list):
+        parsed_sources: list[str] = []
+        for source in sources:
+            if source is None:
+                continue
+            source_text = str(source).strip()
+            if source_text:
+                parsed_sources.append(source_text)
+        return parsed_sources
+    if isinstance(sources, str) and sources.strip():
+        return [sources.strip()]
+    return []
+
+
+def _merge_source_urls(*source_groups: list[str]) -> list[str]:
+    """Merge source URL/key lists while preserving first-seen order."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in source_groups:
+        for source in group:
+            if source in seen:
+                continue
+            seen.add(source)
+            merged.append(source)
+    return merged
 
 
 def _extract_article_title(article_path: Path) -> str:

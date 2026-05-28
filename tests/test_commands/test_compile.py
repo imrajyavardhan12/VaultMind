@@ -216,6 +216,74 @@ def test_run_compile_async_writes_manifest_and_compile_log(monkeypatch, test_con
     assert "compile | 1 created, 0 updated, 1 source(s)" in log_text
 
 
+def test_run_compile_async_preserves_article_frontmatter_sources_in_manifest(
+    monkeypatch,
+    test_config,
+):
+    old_source_url = "https://example.com/old-source"
+    new_source = _raw_source(slug="raw-b", source_url="https://example.com/new-source")
+    concepts_dir = test_config.vault_path / test_config.folders.wiki / test_config.folders.wiki_concepts
+    concepts_dir.mkdir(parents=True, exist_ok=True)
+    (concepts_dir / "concept-a.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "title: Concept A",
+                "vaultmind: true",
+                "kind: concept",
+                "sources:",
+                f"  - {old_source_url}",
+                "---",
+                "",
+                "# Concept A",
+                "",
+                "Updated content",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manifest = Manifest()
+
+    async def fake_compile_sources(
+        sources,
+        manifest_arg,
+        provider,
+        vault_path,
+        folders,
+        *,
+        dry_run=False,
+        existing_concepts=None,
+    ):
+        del manifest_arg, provider, vault_path, folders, dry_run, existing_concepts
+        return (
+            compile_cmd.CompileResult(
+                articles_created=0,
+                articles_updated=1,
+                sources_compiled=len(sources),
+                errors=[],
+            ),
+            {"concept-a": [new_source.source_url]},
+        )
+
+    monkeypatch.setattr(compile_cmd, "compile_sources", fake_compile_sources)
+
+    asyncio.run(
+        compile_cmd._run_compile_async(
+            [new_source],
+            manifest,
+            test_config,
+            provider=object(),
+            dry_run=False,
+        )
+    )
+
+    assert manifest.sources[new_source.source_url].wiki_articles == ["concept-a"]
+    assert manifest.wiki_articles["concept-a"].source_urls == [
+        old_source_url,
+        new_source.source_url,
+    ]
+
+
 def test_render_dry_run_summary_includes_sources_and_targets():
     from vaultmind.commands import compile as compile_cmd
 
