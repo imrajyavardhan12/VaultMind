@@ -254,13 +254,12 @@ created: 2026-05-16T00:00:00+00:00
 
 ## CLI
 
-Core commands:
+Core commands available today:
 
 ```bash
 vm init
 vm compile
 vm ask
-vm lint
 ```
 
 Supporting commands:
@@ -278,6 +277,12 @@ Secondary helper commands:
 ```bash
 vm save <url>
 vm flashcard
+```
+
+Planned health command:
+
+```bash
+vm lint
 ```
 
 ## Installation
@@ -333,4 +338,3 @@ VaultMind is working when:
 - the index and log make the system navigable,
 - lint catches wiki decay before the user loses trust,
 - the vault feels smarter, not merely larger.
-

@@ -51,7 +51,7 @@ class CompileResult:
 
 def _extract_h1_title(body: str) -> str | None:
     """Extract title from the first H1 heading in a markdown body."""
-    match = re.match(r"^#\s+(.+?)\s*$", body.strip(), re.MULTILINE)
+    match = re.search(r"^#\s+(.+?)\s*$", body.strip(), re.MULTILINE)
     return match.group(1).strip() if match else None
 
 
@@ -61,6 +61,62 @@ def _strip_h1(body: str) -> str:
     if lines and re.match(r"^#\s+", lines[0]):
         return "\n".join(lines[1:]).lstrip("\n")
     return body
+
+
+def _extract_frontmatter(markdown: str) -> dict[str, object]:
+    """Extract a markdown frontmatter block as a mapping."""
+    if not markdown.startswith("---"):
+        return {}
+
+    end = markdown.find("---", 3)
+    if end == -1:
+        return {}
+
+    try:
+        import yaml
+
+        data = yaml.safe_load(markdown[3:end])
+    except yaml.YAMLError:
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+    return data
+
+
+def _extract_frontmatter_title(markdown: str) -> str | None:
+    """Extract a title from wiki article frontmatter."""
+    title = _extract_frontmatter(markdown).get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    return None
+
+
+def _extract_frontmatter_sources(markdown: str) -> list[str]:
+    """Extract source URLs/keys from a wiki article frontmatter block."""
+    data = _extract_frontmatter(markdown)
+    if not data:
+        return []
+
+    sources = data.get("sources")
+    if isinstance(sources, list):
+        return [str(source) for source in sources if source]
+    if isinstance(sources, str):
+        return [sources]
+    return []
+
+
+def _merge_source_urls(*source_groups: list[str]) -> list[str]:
+    """Merge source URL/key lists while preserving first-seen order."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in source_groups:
+        for source in group:
+            if source in seen:
+                continue
+            seen.add(source)
+            merged.append(source)
+    return merged
 
 
 def slugify(text: str) -> str:
@@ -276,8 +332,16 @@ async def _update_and_write_article(
 ) -> None:
     """Update a wiki article via LLM and write it to disk."""
     body = await _update_article(existing_content, concept, url_to_source, provider)
-    title = _extract_h1_title(existing_content) or slug.replace("-", " ").title()
-    _write_wiki_article(slug, body, title, concept.source_urls, vault_path, folders)
+    title = (
+        _extract_frontmatter_title(existing_content)
+        or _extract_h1_title(existing_content)
+        or slug.replace("-", " ").title()
+    )
+    source_urls = _merge_source_urls(
+        _extract_frontmatter_sources(existing_content),
+        concept.source_urls,
+    )
+    _write_wiki_article(slug, body, title, source_urls, vault_path, folders)
 
 
 def _write_wiki_article(
