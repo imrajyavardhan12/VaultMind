@@ -185,6 +185,42 @@ def test_fixture_vault_compile_updates_existing_concept_and_preserves_sources(fi
     assert f"  - {source.source_url}" in updated
 
 
+def test_compile_sources_dry_run_does_not_write_concept_pages(test_config):
+    source = _raw_source(slug="dry-run-source", source_url="https://example.com/dry-run")
+    article_dir = test_config.vault_path / test_config.folders.wiki / test_config.folders.wiki_concepts
+    article_path = article_dir / "dry-run-concept.md"
+    triage = json.dumps(
+        {
+            "concepts": [
+                {
+                    "name": "Dry Run Concept",
+                    "status": "new",
+                    "description": "A concept that should not be written",
+                    "source_urls": [source.source_url],
+                }
+            ]
+        }
+    )
+    provider = StubProvider([triage])
+
+    result, slug_to_urls = asyncio.run(
+        compile_sources(
+            [source],
+            Manifest(),
+            provider,
+            test_config.vault_path,
+            test_config.folders,
+            dry_run=True,
+        )
+    )
+
+    assert result.articles_created == 0
+    assert result.articles_updated == 0
+    assert slug_to_urls == {"dry-run-concept": [source.source_url]}
+    assert provider.responses == []
+    assert not article_path.exists()
+
+
 def test_deduplicate_concepts_preserves_existing_status_when_response_omits_status():
     concepts = [
         WikiConceptEntry(
