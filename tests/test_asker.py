@@ -13,6 +13,7 @@ from vaultmind.ai.asker import (
     _extract_answer_text,
     _extract_gaps_from_assessment,
     _follow_up_gap,
+    _initial_search,
     _render_answer_markdown,
     _slug_from_question,
     ask_question,
@@ -199,6 +200,51 @@ class TestFollowUpGap:
         # Gap found a note with same title "Attention" — deduplication prevents adding a second
         titles = [n.title for n in ctx.wiki_notes]
         assert titles.count("Attention") == 1
+
+
+class TestInitialSearch:
+    def test_falls_back_to_raw_when_wiki_has_no_matches(self, tmp_path: Path):
+        vault = tmp_path / "vault"
+        wiki_dir = vault / "🗺️ Wiki" / "🧠 Concepts"
+        raw_dir = vault / "📥 Raw"
+        wiki_dir.mkdir(parents=True)
+        raw_dir.mkdir(parents=True)
+
+        (wiki_dir / "attention.md").write_text(
+            "---\ntitle: Attention\nvaultmind: true\nkind: concept\n---\n\n# Attention\n\nTransformer attention notes.",
+            encoding="utf-8",
+        )
+        (raw_dir / "rlhf.md").write_text(
+            "---\nsource: https://example.com/rlhf\n---\n\n# RLHF\n\nRLHF uses human feedback.",
+            encoding="utf-8",
+        )
+
+        ctx = _initial_search("What is RLHF?", vault, "🗺️ Wiki", "🧠 Concepts", "📥 Raw")
+
+        assert ctx.wiki_notes == []
+        assert len(ctx.raw_sources) == 1
+        assert ctx.raw_sources[0].title == "RLHF"
+
+    def test_skips_raw_when_wiki_match_is_strong(self, tmp_path: Path):
+        vault = tmp_path / "vault"
+        wiki_dir = vault / "🗺️ Wiki" / "🧠 Concepts"
+        raw_dir = vault / "📥 Raw"
+        wiki_dir.mkdir(parents=True)
+        raw_dir.mkdir(parents=True)
+
+        (wiki_dir / "rlhf.md").write_text(
+            "---\ntitle: RLHF\nvaultmind: true\nkind: concept\n---\n\n# RLHF\n\nRLHF notes.",
+            encoding="utf-8",
+        )
+        (raw_dir / "rlhf-source.md").write_text(
+            "# RLHF source\n\nRLHF uses human feedback.",
+            encoding="utf-8",
+        )
+
+        ctx = _initial_search("RLHF", vault, "🗺️ Wiki", "🧠 Concepts", "📥 Raw")
+
+        assert [note.title for note in ctx.wiki_notes] == ["RLHF"]
+        assert ctx.raw_sources == []
 
 
 class TestAskResult:
