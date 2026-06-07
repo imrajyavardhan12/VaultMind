@@ -154,12 +154,6 @@ It should write a reviewable report to:
 
 Checks should include orphan raw sources, concept duplicates, broken wikilinks, stale index entries, wiki pages with no sources, and raw material that has not been compiled.
 
-### Save
-
-`vm save <url>` is a secondary helper workflow.
-
-It can still create structured personal notes for URLs, GitHub repos, Reddit posts, and threads, but it is not the main architecture. The preferred capture path is Obsidian Web Clipper into `📥 Raw/`.
-
 ## Vault Layout
 
 Canonical layout:
@@ -175,12 +169,6 @@ Canonical layout:
 │   ├── 📅 Weekly/
 │   ├── 📇 Index.md
 │   └── 📋 Log.md
-├── 📚 Sources/
-├── 🛠️ Tools/
-├── 🐦 Threads/
-├── 💬 Discussions/
-├── 💡 Ideas/
-├── ⚙️ Meta/
 ├── VAULTMIND.md
 └── vault.manifest.json
 ```
@@ -189,7 +177,6 @@ Ownership:
 
 - `📥 Raw/`: human or Obsidian Web Clipper owned; VaultMind read-only.
 - `🗺️ Wiki/`: VaultMind owned; user reviews.
-- `📚 Sources/`, `🛠️ Tools/`, `🐦 Threads/`, `💬 Discussions/`: secondary `vm save` notes.
 - `VAULTMIND.md`: human-owned schema, optionally scaffolded by VaultMind.
 - `vault.manifest.json`: VaultMind owned.
 
@@ -254,36 +241,26 @@ created: 2026-05-16T00:00:00+00:00
 
 ## CLI
 
-Core commands available today:
+The complete command surface:
 
 ```bash
-vm init
-vm compile
-vm ask
+vm init        # scaffold the vault (📥 Raw + 🗺️ Wiki) and write config
+vm compile     # compile new/changed Raw sources into the Wiki
+vm ask "..."   # answer from the Wiki, falling back to Raw when needed
+vm lint        # deterministic wiki-health report → 🗺️ Wiki/📋 Inbox/
+vm version     # print the version
 ```
 
-Supporting commands:
+No-write/preview modes keep every command safe to dry-run:
 
 ```bash
-vm find
-vm brief
-vm reflect
-vm digest
-vm stats
+vm compile --dry-run   # show what would compile, write nothing
+vm ask "..." --preview # print the answer without filing it
+vm lint --preview      # print the health report without writing it
+vm lint --strict       # exit non-zero if any error-severity findings
 ```
 
-Secondary helper commands:
-
-```bash
-vm save <url>
-vm flashcard
-```
-
-Planned health command:
-
-```bash
-vm lint
-```
+See `vm <command> --help` for all flags.
 
 ## Installation
 
@@ -323,9 +300,8 @@ The config stores vault paths, folder names, and AI provider preferences. The `.
 
 1. Make `vm compile` robust: existing concept awareness, multi-concept manifest mappings, index rebuild, log writes.
 2. Make `vm ask` robust: wiki-first search, Raw fallback, true preview mode, filed query metadata.
-3. Add `vm lint`: reviewable reports for wiki health.
-4. Move brief and reflect output into Wiki with preview support.
-5. Keep `vm save` useful but secondary.
+3. `vm lint` shipped: deterministic wiki-health report (orphan/uncompiled raw, sourceless pages, broken wikilinks, stale index, duplicate concepts). Next: surface its findings into `compile`/`ask`, and consider opt-in autofix.
+4. Honor the page contracts end-to-end: concept pages should carry Connections + Open Questions; query pages should fill Follow-up Questions from `vm ask`'s self-assessed gaps (currently computed but discarded).
 
 ## Success Criteria
 

@@ -1,16 +1,6 @@
-vault_path: "/Users/rvs/Obsidian Vault"
+vault_path: "/Users/you/Obsidian Vault"
 
 folders:
-  inbox: "📥 Inbox"
-  articles: "📚 Sources"
-  tools: "🛠️ Tools"
-  threads: "🐦 Threads"
-  discussions: "💬 Discussions"
-  flashcards: "🃏 Flashcards"
-  digests: "📊 Digests"
-  mocs: "🗺️ MOCs"
-  ideas: "💡 Ideas"
-  meta: "⚙️ Meta"
   raw: "📥 Raw"
   wiki: "🗺️ Wiki"
   wiki_concepts: "🧠 Concepts"
@@ -20,12 +10,9 @@ folders:
   wiki_index: "📇 Index"
 
 ai:
-  default_provider: "openai"
-  fallback_chain: ["openai", "anthropic", "ollama"]
+  default_provider: "anthropic"
+  fallback_chain: ["anthropic", "openai", "ollama"]
   max_tokens: 2000
-  generate_flashcards: true
-  generate_counterarguments: true
-  rating: true
   providers:
     anthropic:
       models:
@@ -40,8 +27,3 @@ ai:
       models:
         fast: "llama3"
         deep: "llama3"
-
-preferences:
-  default_status: "processed"
-  open_after_save: false
-  notify_on_save: true

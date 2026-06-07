@@ -23,39 +23,20 @@ class AIConfig(BaseModel):
     default_provider: str = "anthropic"
     fallback_chain: list[str] = Field(default_factory=lambda: ["anthropic"])
     max_tokens: int = 2000
-    generate_flashcards: bool = True
-    generate_counterarguments: bool = True
-    rating: bool = True
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 
 
 class FolderConfig(BaseModel):
-    inbox: str = "📥 Inbox"
-    articles: str = "📚 Sources"
-    tools: str = "🛠️ Tools"
-    threads: str = "🐦 Threads"
-    discussions: str = "💬 Discussions"
-    flashcards: str = "🃏 Flashcards"
-    digests: str = "📊 Digests"
-    mocs: str = "🗺️ MOCs"
-    ideas: str = "💡 Ideas"
-    meta: str = "⚙️ Meta"
-    # Raw sources folder — populated by Obsidian Web Clipper
-    # This is where vm compile reads from (immutable original content)
+    # Raw sources folder — populated by Obsidian Web Clipper.
+    # This is where vm compile reads from (immutable original content).
     raw: str = "📥 Raw"
-    # Wiki directory (LLM-authored concept articles)
+    # Wiki directory (LLM-authored concept articles, queries, reports).
     wiki: str = "🗺️ Wiki"
     wiki_concepts: str = "🧠 Concepts"
     wiki_queries: str = "📊 Queries"
     wiki_inbox: str = "📋 Inbox"
     wiki_weekly: str = "📅 Weekly"
     wiki_index: str = "📇 Index"
-
-
-class PreferencesConfig(BaseModel):
-    default_status: str = "processed"
-    open_after_save: bool = False
-    notify_on_save: bool = True
 
 
 def _find_env_file() -> str:
@@ -81,7 +62,6 @@ class EnvSettings(BaseSettings):
 
     anthropic_api_key: str = ""
     openai_api_key: str = ""
-    github_token: str = ""
     ollama_base_url: str = "http://localhost:11434"
 
 
@@ -91,7 +71,6 @@ class AppConfig(BaseModel):
     vault_path: Path
     folders: FolderConfig = Field(default_factory=FolderConfig)
     ai: AIConfig = Field(default_factory=AIConfig)
-    preferences: PreferencesConfig = Field(default_factory=PreferencesConfig)
     env: EnvSettings = Field(default_factory=EnvSettings)
 
 

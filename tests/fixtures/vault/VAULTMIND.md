@@ -6,7 +6,6 @@ This file defines the ownership contract for VaultMind's AI-maintained wiki laye
 
 - `📥 Raw/` — Human or Obsidian Web Clipper owned. VaultMind reads only.
 - `🗺️ Wiki/` — VaultMind owned. User reviews. The AI-maintained knowledge base.
-- `📚 Sources/`, `🛠️ Tools/`, `🐦 Threads/`, `💬 Discussions/`, `💡 Ideas/` — Secondary `vm save` notes.
 - `VAULTMIND.md` — Human-owned schema. Optional scaffold by VaultMind.
 - `vault.manifest.json` — VaultMind owned. Machine-readable state.
 

@@ -16,32 +16,13 @@ CONFIG_PATH = CONFIG_DIR / "config.yaml"
 ENV_PATH = CONFIG_DIR / ".env"
 
 VAULT_FOLDERS = [
-    "📥 Inbox",
     "📥 Raw",
     "📥 Raw/assets",
-    "📚 Sources",
-    "📚 Sources/AI",
-    "📚 Sources/Tech",
-    "📚 Sources/Philosophy",
-    "📚 Sources/Business",
-    "📚 Sources/Science",
-    "📚 Sources/Design",
-    "📚 Sources/Misc",
-    "🛠️ Tools",
-    "🐦 Threads",
-    "💬 Discussions",
-    "🃏 Flashcards",
-    "📊 Digests",
-    "📊 Digests/Weekly",
-    "📊 Digests/Monthly",
-    "🗺️ MOCs",
     "🗺️ Wiki",
     "🗺️ Wiki/🧠 Concepts",
     "🗺️ Wiki/📊 Queries",
     "🗺️ Wiki/📋 Inbox",
     "🗺️ Wiki/📅 Weekly",
-    "💡 Ideas",
-    "⚙️ Meta",
 ]
 
 VAULT_SCHEMA = """# VaultMind Schema
@@ -110,8 +91,10 @@ def init(verbose: bool = False) -> None:
         f"Config: {CONFIG_PATH}\n"
         f"Secrets: {ENV_PATH}\n"
         f"Vault: {vault_path}\n\n"
-        f"Try it out:\n"
-        f"  vm save https://github.com/astral-sh/uv",
+        f"Next steps:\n"
+        f"  1. Clip sources into 📥 Raw/ (e.g. with Obsidian Web Clipper)\n"
+        f"  2. vm compile\n"
+        f'  3. vm ask "your question"',
     )
 
 
@@ -208,16 +191,6 @@ def _write_config(vault_path: Path, provider: str) -> None:
     config_data = {
         "vault_path": str(vault_path),
         "folders": {
-            "inbox": "📥 Inbox",
-            "articles": "📚 Sources",
-            "tools": "🛠️ Tools",
-            "threads": "🐦 Threads",
-            "discussions": "💬 Discussions",
-            "flashcards": "🃏 Flashcards",
-            "digests": "📊 Digests",
-            "mocs": "🗺️ MOCs",
-            "ideas": "💡 Ideas",
-            "meta": "⚙️ Meta",
             "raw": "📥 Raw",
             "wiki": "🗺️ Wiki",
             "wiki_concepts": "🧠 Concepts",
@@ -230,9 +203,6 @@ def _write_config(vault_path: Path, provider: str) -> None:
             "default_provider": provider,
             "fallback_chain": fallback,
             "max_tokens": 2000,
-            "generate_flashcards": True,
-            "generate_counterarguments": True,
-            "rating": True,
             "providers": {
                 "anthropic": {
                     "models": {"fast": "claude-sonnet-4-20250514", "deep": "claude-opus-4-5"},
@@ -245,11 +215,6 @@ def _write_config(vault_path: Path, provider: str) -> None:
                     "models": {"fast": "llama3", "deep": "llama3"},
                 },
             },
-        },
-        "preferences": {
-            "default_status": "processed",
-            "open_after_save": False,
-            "notify_on_save": True,
         },
     }
 
@@ -275,7 +240,6 @@ def _write_env(provider: str, api_key: str) -> None:
         lines.append("# ANTHROPIC_API_KEY=")
         lines.append("# OPENAI_API_KEY=")
 
-    lines.append("# GITHUB_TOKEN=")
     lines.append("")
 
     with open(ENV_PATH, "w", encoding="utf-8") as f:
