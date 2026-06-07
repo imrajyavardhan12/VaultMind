@@ -2,12 +2,47 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from difflib import SequenceMatcher
 
-from vaultmind.core.linker import _jaccard, _normalize_tags, _tokenize_title
 from vaultmind.core.vault_index import VaultNoteRecord, truncate_for_ai
+
+# Text-overlap helpers used by note scoring. (These previously lived in
+# core.linker, which backed the removed save-pipeline related-notes feature.)
+_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how",
+    "in", "is", "it", "of", "on", "or", "that", "the", "to", "what", "when",
+    "why", "with",
+}
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    """Compute Jaccard similarity between two sets."""
+    if not a and not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _normalize_tags(tags: object) -> set[str]:
+    """Normalize a frontmatter tags value into a lowercase set."""
+    if not isinstance(tags, list):
+        return set()
+    normalized: set[str] = set()
+    for tag in tags:
+        if not isinstance(tag, str):
+            continue
+        clean = tag.strip().lower()
+        if clean:
+            normalized.add(clean)
+    return normalized
+
+
+def _tokenize_title(title: str) -> set[str]:
+    """Tokenize and normalize note titles for overlap scoring."""
+    tokens = re.findall(r"[a-z0-9]+", title.lower())
+    return {token for token in tokens if len(token) >= 2 and token not in _STOPWORDS}
 
 
 @dataclass(slots=True)

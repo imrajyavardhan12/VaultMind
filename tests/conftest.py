@@ -12,7 +12,6 @@ from vaultmind.config import (
     AppConfig,
     EnvSettings,
     FolderConfig,
-    PreferencesConfig,
     ProviderConfig,
     ProviderModels,
 )
@@ -50,7 +49,6 @@ def test_config(tmp_vault: Path) -> AppConfig:
                 )
             },
         ),
-        preferences=PreferencesConfig(),
         env=EnvSettings(anthropic_api_key="test-key"),
     )
 
@@ -87,6 +85,5 @@ def fixture_vault(tmp_path: Path) -> AppConfig:
                 )
             },
         ),
-        preferences=PreferencesConfig(),
         env=EnvSettings(anthropic_api_key="test-key"),
     )

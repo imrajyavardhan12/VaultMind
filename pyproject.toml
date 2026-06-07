@@ -1,12 +1,12 @@
 [project]
 name = "vaultmind"
 version = "0.1.2"
-description = "Your personal AI-powered second brain. Feed it anything. Find everything."
+description = "Clip anything into Obsidian. Run vm compile. Ask your living wiki."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Rajya Vardhan Singh", email = "imrajyavardhan12@gmail.com" }]
-keywords = ["obsidian", "second-brain", "ai", "cli", "knowledge-management"]
+keywords = ["obsidian", "wiki", "llm", "ai", "cli", "knowledge-management"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -20,9 +20,7 @@ classifiers = [
 dependencies = [
     "typer>=0.15.0",
     "rich>=13.0.0",
-    "textual>=0.70.0",
     "httpx>=0.28.0",
-    "trafilatura>=2.0.0",
     "anthropic>=0.52.0",
     "openai>=1.0.0",
     "pydantic>=2.0.0",

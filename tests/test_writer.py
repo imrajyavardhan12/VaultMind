@@ -1,13 +1,10 @@
-"""Tests for vault writer."""
+"""Tests for the vault markdown writer."""
 
+from __future__ import annotations
 
-from vaultmind.core.writer import generate_filename, resolve_folder, slugify, write_note
-from vaultmind.schemas import (
-    ArticleCategory,
-    NoteFrontmatter,
-    RenderedNote,
-    SourceType,
-)
+from pathlib import Path
+
+from vaultmind.core.writer import parse_frontmatter, slugify, write_markdown_page
 
 
 def test_slugify():
@@ -22,45 +19,36 @@ def test_slugify_max_length():
     assert len(slug) <= 80
 
 
-def test_generate_filename():
-    filename = generate_filename("Test Article", "abc123")
-    assert filename == "test-article.md"
-
-
-def test_resolve_folder_article(test_config):
-    folder = resolve_folder(SourceType.ARTICLE, ArticleCategory.AI, test_config)
-    assert "📚 Sources" in str(folder)
-    assert "AI" in str(folder)
-
-
-def test_resolve_folder_reddit(test_config):
-    folder = resolve_folder(SourceType.REDDIT, ArticleCategory.MISC, test_config)
-    assert "💬 Discussions" in str(folder)
-
-
-def test_resolve_folder_unknown(test_config):
-    folder = resolve_folder(SourceType.UNKNOWN, ArticleCategory.MISC, test_config)
-    assert "📥 Inbox" in str(folder)
-
-
-def test_write_note(test_config):
-    fm = NoteFrontmatter(
-        title="Test Note",
-        source="https://example.com",
-        canonical_url="https://example.com",
-        type=SourceType.ARTICLE,
-        tags=["test"],
-        content_hash="abc123",
+def test_write_markdown_page_roundtrip(tmp_path: Path):
+    path = tmp_path / "sub" / "page.md"
+    written = write_markdown_page(
+        path,
+        body="# Title\n\nBody text.",
+        frontmatter={"title": "Title", "vaultmind": True, "kind": "concept"},
     )
-    note = RenderedNote(
-        frontmatter=fm,
-        body="# Test Note\n\nSome content.",
-        filename="test-note.md",
-        folder_path=str(test_config.vault_path / "📚 Sources" / "Misc"),
-    )
-    path = write_note(note, test_config)
-    assert path.exists()
-    content = path.read_text()
-    assert "title: Test Note" in content
-    assert "# Test Note" in content
-    assert "vaultmind: true" in content
+    assert written == path
+    content = path.read_text(encoding="utf-8")
+    assert content.startswith("---\n")
+    assert "kind: concept" in content
+    assert "# Title" in content
+
+
+def test_write_markdown_page_no_frontmatter(tmp_path: Path):
+    path = tmp_path / "plain.md"
+    write_markdown_page(path, body="just a body")
+    content = path.read_text(encoding="utf-8")
+    assert not content.startswith("---")
+    assert content.strip() == "just a body"
+
+
+def test_parse_frontmatter(tmp_path: Path):
+    path = tmp_path / "fm.md"
+    path.write_text("---\ntitle: Hello\nkind: query\n---\n\nbody", encoding="utf-8")
+    fm = parse_frontmatter(path)
+    assert fm == {"title": "Hello", "kind": "query"}
+
+
+def test_parse_frontmatter_none_when_absent(tmp_path: Path):
+    path = tmp_path / "nofm.md"
+    path.write_text("no frontmatter here", encoding="utf-8")
+    assert parse_frontmatter(path) is None
