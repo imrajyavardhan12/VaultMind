@@ -115,12 +115,12 @@ It should:
 2. Detect new or changed source files.
 3. Read the current wiki index and known concept pages.
 4. Ask the LLM which concepts should be created or updated.
-5. Create or update pages in `🗺️ Wiki/🧠 Concepts/`.
+5. Create or update pages in `🗺️ Wiki/🧠 Concepts/` from bounded packets of the attributed Raw source text.
 6. Update `🗺️ Wiki/📇 Index.md`.
 7. Append to `🗺️ Wiki/📋 Log.md`.
 8. Update `vault.manifest.json`.
 
-Compile should be conservative. Updating an existing concept page is usually better than creating a duplicate page.
+Compile should be conservative. Updating an existing concept page is usually better than creating a duplicate page. Article generation and updates are grounded in bounded Raw source packets, and VaultMind deterministically enforces the concept-page headings and synchronizes source citations before each atomic write.
 
 ### Ask
 
@@ -188,7 +188,7 @@ Concept pages live in:
 🗺️ Wiki/🧠 Concepts/{slug}.md
 ```
 
-Recommended shape:
+Required shape:
 
 ```markdown
 ---
@@ -254,11 +254,21 @@ vm version     # print the version
 No-write/preview modes keep every command safe to dry-run:
 
 ```bash
-vm compile --dry-run   # show what would compile, write nothing
-vm ask "..." --preview # print the answer without filing it
+vm compile --dry-run          # show what would compile; no writes or propagation calls
+vm compile --max-touches 5    # cap existing pages touched per source (0 disables propagation)
+vm ask "..." --preview        # print the answer without filing it
 vm lint --preview      # print the health report without writing it
 vm lint --strict       # exit non-zero if any error-severity findings
 ```
+
+After creating or updating concepts, `vm compile` may propagate links into existing
+concept pages. Each source can touch at most `--max-touches` pages (default: 5),
+adding a constrained `Connections` wikilink and source provenance. Repeated
+propagation is idempotent against the page currently on disk. If a propagation
+provider call or page write fails, that source's current hash is not recorded;
+the command exits non-zero and the next incremental compile retries the source.
+Touches that were written before a later failure remain recorded in both manifest
+directions. `--dry-run` performs neither propagation calls nor writes.
 
 See `vm <command> --help` for all flags.
 
@@ -301,7 +311,7 @@ The config stores vault paths, folder names, and AI provider preferences. The `.
 1. Make `vm compile` robust: existing concept awareness, multi-concept manifest mappings, index rebuild, log writes.
 2. Make `vm ask` robust: wiki-first search, Raw fallback, true preview mode, filed query metadata.
 3. `vm lint` shipped: deterministic wiki-health report (orphan/uncompiled raw, sourceless pages, broken wikilinks, stale index, duplicate concepts). Next: surface its findings into `compile`/`ask`, and consider opt-in autofix.
-4. Honor the page contracts end-to-end: concept pages should carry Connections + Open Questions; query pages should fill Follow-up Questions from `vm ask`'s self-assessed gaps (currently computed but discarded).
+4. Complete the remaining query-page contract: concept-page structure and citations are now enforced during compilation; query pages should fill Follow-up Questions from `vm ask`'s self-assessed gaps (currently computed but discarded).
 
 ## Success Criteria
 
