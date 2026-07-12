@@ -4,26 +4,26 @@ from __future__ import annotations
 
 # ---- vm ask prompts ----
 
-ASK_SYSTEM_PROMPT = """You are VaultMind's query synthesis engine. You answer questions by synthesizing information from the provided wiki articles and raw sources. You must ground every claim in the input materials. Never invent facts, URLs, or conclusions not supported by the sources."""
+ASK_SYSTEM_PROMPT = """You are VaultMind's iterative query synthesis engine. You answer questions by synthesizing only the provided concept pages, previously filed query answers, and Raw sources. Ground every claim in those materials. Never invent facts, URLs, or conclusions. When later context adds evidence, regenerate a complete answer rather than appending an ungrounded correction."""
 
-ASK_USER_PROMPT = """Answer the question below using only the provided wiki articles and raw sources. If the materials do not contain enough information to fully answer the question, say so clearly and identify what additional knowledge would be needed.
+ASK_USER_PROMPT = """Synthesize the best complete answer to the question using only the accumulated context below. The context may include concept pages, previously filed query answers, and Raw sources found during earlier gap searches. If it is insufficient, state the limitation in the answer. Do not create markdown headings.
 
 Return ONLY valid JSON in this exact shape:
-{{"answer": "your comprehensive answer in paragraph form", "gaps": ["what's still unknown or would need follow-up research"]}}
+{{"answer": "your grounded, comprehensive answer in paragraph form"}}
 
 Question: {question}
 
-Context:
+Accumulated context:
 {context}
 """
 
-ASK_SELF_ASSESS_PROMPT = """Given your answer and the question, identify knowledge gaps — areas where the provided sources do not fully address what is being asked. Return only the gaps.
+ASK_SELF_ASSESS_PROMPT = """Assess the latest answer against the original question. Identify only concrete, searchable knowledge gaps that prevent a complete, source-grounded answer. Return an empty list when the latest answer fully addresses the question. Do not repeat gaps that the answer resolved.
 
-Return JSON:
-{{"gaps": ["gap description 1", "gap description 2"]}}
+Return ONLY valid JSON in this exact shape:
+{{"gaps": ["concise searchable gap description"]}}
 
-Question: {question}
-Answer: {answer}
+Original question: {question}
+Latest answer: {answer}
 """
 
 
@@ -58,39 +58,46 @@ Sources:
 """
 
 
-COMPILE_ARTICLE_CREATE_PROMPT = """Write a new wiki article for the concept "{concept_name}".
+COMPILE_ARTICLE_CREATE_PROMPT = """Write a new, source-grounded wiki article for the concept "{concept_name}".
 
 Description: {description}
-Sources to synthesize: {source_urls}
 
-The article should:
+Attributed citations and bounded Raw source packets:
+{source_context}
+
+Contract and rules:
+- Base factual content only on the supplied Raw packets; mark uncertainty when a cited source is unavailable
 - Be 400-800 words
-- Have clear sections: Overview, Key Ideas, Sources
-- Include a Sources section with full URLs, listed in order of importance
+- Begin with exactly one `# {concept_name}` H1
+- Include every section exactly as an H2: Overview, Key Ideas, Connections, Open Questions, Sources
+- List every attributed source citation once as a bullet under Sources, including unresolved source keys
 - Be written in an encyclopedic but accessible tone
-- Use wikilinks for related concepts you know about (e.g. [[attention-mechanisms]])
+- Use Obsidian wikilinks for related concepts where appropriate (e.g. [[attention-mechanisms]])
 - Do NOT repeat exact quotes from sources — synthesize in your own words
 
 Write the article in full markdown. No frontmatter. No code blocks unless showing code.
 """
 
 
-COMPILE_ARTICLE_UPDATE_PROMPT = """You are maintaining a research wiki. Update the existing wiki article to incorporate new information from the listed sources.
+COMPILE_ARTICLE_UPDATE_PROMPT = """You are maintaining a research wiki. Update the existing article using the bounded Raw source packets below.
 
-Existing article:
+Existing article (possibly truncated by the caller):
 ---
 {existing_content}
 ---
 
-New sources to incorporate:
+Attributed citations and new Raw source packets:
 {new_sources}
 
-Rules:
-- Update the article to incorporate all new information
+Contract and rules:
+- Base new factual content only on the supplied Raw packets; mark uncertainty when a cited source is unavailable
+- Preserve useful existing content while incorporating all relevant new information
+- Begin with exactly one H1 matching the existing human title
+- Include every section exactly as an H2: Overview, Key Ideas, Connections, Open Questions, Sources
+- List every attributed source citation once as a bullet under Sources, including unresolved source keys
 - Maintain consistent structure and tone with the existing article
-- Add new backlinks to related concepts where appropriate (e.g. [[attention-mechanisms]])
+- Add Obsidian wikilinks to related concepts where appropriate (e.g. [[attention-mechanisms]])
 - Be 400-800 words unless the new sources substantially expand the topic
-- Keep the Sources section updated — add new URLs at the bottom
 - Do NOT repeat exact quotes — synthesize in your own words
 
 Write the updated article in full markdown. No frontmatter.
@@ -116,6 +123,37 @@ Rules:
 
 Write the updated index in full markdown. No frontmatter.
 """
+
+COMPILE_GRAPH_TOUCH_PROMPT = """You are maintaining a research wiki. A NEW source has been ingested and contributed to the following NEW concept pages. Identify EXISTING concept pages whose `## Connections` section should cross-link to one of the new concepts.
+
+You will be given:
+- The NEW source body (title, source URL/key, tags, then the original article text).
+- The list of NEW concept slugs that this source contributed to.
+- A catalog of EXISTING concept pages, one per line, formatted as:
+  `<slug> | <title> | <one-line summary>`
+
+Rules:
+- Only choose `target_slug` values that appear EXACTLY in the catalog. Do not invent slugs.
+- Each `connection_line` MUST be a SINGLE short sentence describing the relationship.
+- Each `connection_line` MUST include at least one Obsidian wikilink to one of the NEW concept slugs in the form `[[<new-slug>|<Title>]]`. Use the exact new-slug; the title can be human-readable.
+- Do NOT include wikilinks to slugs other than the NEW concept slugs provided.
+- `relevance` is an integer 1-10. Use 10 only for direct, central connections; use 1-3 for distant or speculative ones. If unsure, use 5.
+- Be conservative — only propose a touch if the existing concept page would genuinely benefit from the cross-link. Prefer fewer, stronger connections over many weak ones.
+- Cap your response at 10 entries. The caller may further trim.
+- If no good connections exist, return `{{"touches": []}}`.
+
+Respond ONLY with valid JSON in this exact shape:
+{{"touches": [{{"target_slug": "...", "connection_line": "...", "relevance": 1-10}}]}}
+
+NEW concept slugs: {new_concept_slugs}
+
+NEW source:
+{new_source_packet}
+
+EXISTING concept catalog (slug | title | summary):
+{catalog}
+"""
+
 
 COMPILE_CONCEPT_DEDUP_PROMPT = """You are a librarian deduplicating a concept list. Given a list of concepts identified from raw sources, merge overlapping or near-duplicate concepts into a single canonical entry.
 

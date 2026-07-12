@@ -6,6 +6,8 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from vaultmind.ai.asker import (
     AskResult,
     GatheredContext,
@@ -134,7 +136,7 @@ class TestRenderAnswerMarkdown:
             now=datetime.now(UTC),
         )
         assert "# What is attention?" in body
-        assert "## 💡 Answer" in body
+        assert "## Answer" in body
         assert "It is a mechanism." in body
 
     def test_supporting_notes_section(self):
@@ -146,7 +148,7 @@ class TestRenderAnswerMarkdown:
             iterations=1,
             now=datetime.now(UTC),
         )
-        assert "## Supporting Notes" in body
+        assert "## Supporting Wiki Pages" in body
         assert "[[path/to/note1]]" in body
         assert "[[path/to/note2]]" in body
 
@@ -159,7 +161,7 @@ class TestRenderAnswerMarkdown:
             iterations=1,
             now=datetime.now(UTC),
         )
-        assert "## Supporting Sources" in body
+        assert "## Supporting Raw Sources" in body
         assert "https://example.com/article" in body
 
     def test_iterations_in_footer(self):
@@ -200,6 +202,49 @@ class TestFollowUpGap:
         # Gap found a note with same title "Attention" — deduplication prevents adding a second
         titles = [n.title for n in ctx.wiki_notes]
         assert titles.count("Attention") == 1
+
+    def test_searches_raw_when_only_strong_wiki_match_is_already_gathered(
+        self, tmp_path: Path
+    ):
+        vault = tmp_path / "vault"
+        wiki_dir = vault / "Wiki" / "Concepts"
+        raw_dir = vault / "Raw"
+        wiki_dir.mkdir(parents=True)
+        raw_dir.mkdir(parents=True)
+        (wiki_dir / "capacity.md").write_text(
+            "---\ntitle: Capacity\nvaultmind: true\n---\n\n# Capacity\n\nCapacity overview.",
+            encoding="utf-8",
+        )
+        (raw_dir / "capacity-details.md").write_text(
+            "# Capacity details\n\nCapacity evidence missing from the overview.", encoding="utf-8"
+        )
+        context = _initial_search("capacity", vault, "Wiki", "Concepts", "Raw", "Queries")
+        assert [note.title for note in context.wiki_notes] == ["Capacity"]
+        assert context.raw_sources == []
+
+        _follow_up_gap("capacity", context, vault, "Wiki", "Concepts", "Raw", "Queries")
+
+        assert [source.title for source in context.raw_sources] == ["Capacity details"]
+
+    def test_new_strong_wiki_match_skips_raw(self, tmp_path: Path):
+        vault = tmp_path / "vault"
+        wiki_dir = vault / "Wiki" / "Concepts"
+        raw_dir = vault / "Raw"
+        wiki_dir.mkdir(parents=True)
+        raw_dir.mkdir(parents=True)
+        (wiki_dir / "capacity.md").write_text(
+            "---\ntitle: Capacity\nvaultmind: true\n---\n\n# Capacity\n\nCapacity overview.",
+            encoding="utf-8",
+        )
+        (raw_dir / "capacity.md").write_text(
+            "# Capacity raw\n\nCapacity source evidence.", encoding="utf-8"
+        )
+        context = GatheredContext()
+
+        _follow_up_gap("capacity", context, vault, "Wiki", "Concepts", "Raw", "Queries")
+
+        assert [note.title for note in context.wiki_notes] == ["Capacity"]
+        assert context.raw_sources == []
 
 
 class TestInitialSearch:
@@ -246,6 +291,27 @@ class TestInitialSearch:
         assert [note.title for note in ctx.wiki_notes] == ["RLHF"]
         assert ctx.raw_sources == []
 
+    def test_searches_filed_queries_and_uses_combined_wiki_strength(self, tmp_path: Path):
+        vault = tmp_path / "vault"
+        query_dir = vault / "🗺️ Wiki" / "📊 Queries"
+        raw_dir = vault / "📥 Raw"
+        query_dir.mkdir(parents=True)
+        raw_dir.mkdir(parents=True)
+        (query_dir / "dpo.md").write_text(
+            "---\ntitle: DPO\nvaultmind: true\nkind: query\ncreated: 2026-01-01T00:00:00+00:00\n---\n\n"
+            "# DPO\n\n## Answer\nDPO directly optimizes preferences.",
+            encoding="utf-8",
+        )
+        (raw_dir / "dpo.md").write_text("# DPO raw\n\nDPO source.", encoding="utf-8")
+
+        ctx = _initial_search(
+            "DPO", vault, "🗺️ Wiki", "🧠 Concepts", "📥 Raw", "📊 Queries"
+        )
+
+        assert [note.source_type for note in ctx.wiki_notes] == ["query"]
+        assert ctx.wiki_notes[0].relative_path == "🗺️ Wiki/📊 Queries/dpo"
+        assert ctx.raw_sources == []
+
 
 class TestAskResult:
     def test_ask_result_dataclass(self):
@@ -286,7 +352,308 @@ def test_ask_preview_does_not_write_query_file(tmp_path: Path):
 
     assert result.answer == "RLHF uses human feedback."
     assert not result.path.exists()
+    assert not (vault / "🗺️ Wiki").exists()
+    assert not (vault / "vault.manifest.json").exists()
     assert "RLHF uses human feedback" in provider.prompts[0]
+
+
+def test_deep_ask_runs_three_syntheses_and_returns_latest_gaps(tmp_path: Path):
+    vault = tmp_path / "vault"
+    raw_dir = vault / "📥 Raw"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "alpha.md").write_text("# Alpha\n\nalpha evidence", encoding="utf-8")
+    (raw_dir / "beta.md").write_text("# Beta\n\nbeta evidence", encoding="utf-8")
+    provider = StubProvider([
+        '{"answer": "first"}',
+        '{"gaps": ["alpha evidence"]}',
+        '{"answer": "second"}',
+        '{"gaps": ["beta evidence"]}',
+        '{"answer": "third"}',
+        '{"gaps": ["fresh final gap"]}',
+    ])
+
+    result = asyncio.run(ask_question(
+        "Uncovered topic",
+        provider,
+        vault,
+        "🗺️ Wiki",
+        "🧠 Concepts",
+        "📊 Queries",
+        "📥 Raw",
+        depth="deep",
+        file_answer=False,
+    ))
+
+    assert result.answer == "third"
+    assert result.iterations == 3
+    assert result.gaps == ["fresh final gap"]
+    assert len(provider.prompts) == 6
+    assert "alpha evidence" in provider.prompts[2]
+    assert "alpha evidence" in provider.prompts[4]
+    assert "beta evidence" in provider.prompts[4]
+
+
+def test_deep_ask_stops_after_latest_assessment_reports_no_gaps(tmp_path: Path):
+    provider = StubProvider(['{"answer": "complete"}', '{"gaps": []}'])
+
+    result = asyncio.run(ask_question(
+        "Question",
+        provider,
+        tmp_path,
+        "Wiki",
+        "Concepts",
+        "Queries",
+        "Raw",
+        depth="deep",
+        file_answer=False,
+    ))
+
+    assert result.iterations == 1
+    assert result.gaps == []
+    assert len(provider.prompts) == 2
+
+
+def test_follow_up_context_is_deduplicated_and_capped(tmp_path: Path):
+    vault = tmp_path / "vault"
+    concepts = vault / "Wiki" / "Concepts"
+    raw = vault / "Raw"
+    concepts.mkdir(parents=True)
+    raw.mkdir(parents=True)
+    for index in range(35):
+        (concepts / f"note-{index}.md").write_text(
+            f"---\ntitle: Note {index}\nvaultmind: true\nkind: concept\n---\n\n"
+            f"# Note {index}\n\ncapacity evidence {index}",
+            encoding="utf-8",
+        )
+    for index in range(25):
+        (raw / f"source-{index}.md").write_text(
+            f"# Source {index}\n\ncapacity raw evidence {index}", encoding="utf-8"
+        )
+
+    context = GatheredContext()
+    _follow_up_gap("capacity", context, vault, "Wiki", "Concepts", "Raw", "Queries")
+    _follow_up_gap("capacity", context, vault, "Wiki", "Concepts", "Raw", "Queries")
+
+    assert len(context.wiki_notes) == 30
+    assert len(context.raw_sources) == 20
+    assert len({note.relative_path for note in context.wiki_notes}) == 30
+    assert len({source.relative_path for source in context.raw_sources}) == 20
+
+
+def test_query_page_contract_and_final_gap_rendering():
+    body = _render_answer_markdown(
+        "Question?",
+        "# Unsafe provider heading\n\nAnswer.",
+        supporting_notes=["Wiki/Concepts/one", "Wiki/Queries/two"],
+        supporting_sources=["Raw/source"],
+        iterations=3,
+        now=datetime(2026, 1, 1, tzinfo=UTC),
+        gaps=["First gap", "Second gap"],
+    )
+
+    assert [line for line in body.splitlines() if line.startswith("# ")] == ["# Question?"]
+    assert [line for line in body.splitlines() if line.startswith("## ")] == [
+        "## Answer",
+        "## Supporting Wiki Pages",
+        "## Supporting Raw Sources",
+        "## Follow-up Questions",
+    ]
+    assert "- [[Wiki/Concepts/one]]" in body
+    assert "- [[Wiki/Queries/two]]" in body
+    assert "- First gap\n- Second gap" in body
+
+
+def test_query_page_sanitizes_setext_headings_but_preserves_fenced_examples():
+    answer = """Provider title
+==============
+
+Answer text.
+
+Provider section
+----------------
+
+```markdown
+Fenced title
+============
+# Fenced ATX title
+```
+
+~~~markdown
+Fenced section
+--------------
+## Fenced ATX section
+~~~"""
+
+    body = _render_answer_markdown(
+        "Question?",
+        answer,
+        supporting_notes=[],
+        supporting_sources=[],
+        iterations=1,
+        now=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    assert "### Provider title" in body
+    assert "### Provider section" in body
+    assert "Provider title\n==============" not in body
+    assert "Provider section\n----------------" not in body
+    assert "Fenced title\n============\n# Fenced ATX title" in body
+    assert "Fenced section\n--------------\n## Fenced ATX section" in body
+    assert "Answer text." in body
+
+
+def test_query_page_fences_follow_commonmark_marker_and_closer_rules():
+    answer = """~~~`markdown`
+# Keep in tilde fence with backtick info
+~~~
+~~~ `markdown`
+## Keep in tilde fence with spaced backtick info
+~~~
+# Demote after tilde fence
+
+````markdown
+# Keep before shorter pseudo-closer
+```
+# Keep after shorter pseudo-closer
+~~~~
+# Keep after mismatched marker
+````
+# Demote after backtick fence
+
+~~~markdown
+# Keep before trailing-content pseudo-closer
+~~~ not-a-closer
+## Keep after trailing-content pseudo-closer
+~~~
+## Demote after final fence
+
+```markdown `invalid-info`
+# Demote after invalid backtick opener"""
+
+    body = _render_answer_markdown(
+        "Question?",
+        answer,
+        supporting_notes=[],
+        supporting_sources=[],
+        iterations=1,
+        now=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    assert "# Keep in tilde fence with backtick info" in body
+    assert "## Keep in tilde fence with spaced backtick info" in body
+    assert "### Demote after tilde fence" in body
+    assert "# Keep after shorter pseudo-closer" in body
+    assert "# Keep after mismatched marker" in body
+    assert "### Demote after backtick fence" in body
+    assert "## Keep after trailing-content pseudo-closer" in body
+    assert "### Demote after final fence" in body
+    assert "### Demote after invalid backtick opener" in body
+
+
+def test_query_page_uses_explicit_no_gaps_marker():
+    body = _render_answer_markdown(
+        "Question?",
+        "Answer.",
+        supporting_notes=[],
+        supporting_sources=[],
+        iterations=1,
+        now=datetime(2026, 1, 1, tzinfo=UTC),
+        gaps=[],
+    )
+    assert "## Follow-up Questions\n*No follow-up questions.*" in body
+
+
+def test_filed_answer_is_reused_by_a_later_question(tmp_path: Path):
+    vault = tmp_path / "vault"
+    first_provider = StubProvider(['{"answer": "RLHF alignment uses preference feedback."}'])
+    first = asyncio.run(ask_question(
+        "How does RLHF improve alignment?",
+        first_provider,
+        vault,
+        "Wiki",
+        "Concepts",
+        "Queries",
+        "Raw",
+        depth="shallow",
+    ))
+    second_provider = StubProvider(['{"answer": "It reuses filed knowledge."}'])
+
+    second = asyncio.run(ask_question(
+        "RLHF alignment",
+        second_provider,
+        vault,
+        "Wiki",
+        "Concepts",
+        "Queries",
+        "Raw",
+        depth="shallow",
+    ))
+
+    assert "RLHF alignment uses preference feedback." in second_provider.prompts[0]
+    second_text = second.path.read_text(encoding="utf-8")
+    assert f"[[Wiki/Queries/{first.slug}]]" in second_text
+
+
+@pytest.mark.parametrize("question", ["", "   ", "First line\nSecond line", "First\rSecond"])
+def test_ask_rejects_questions_that_cannot_be_an_exact_h1(
+    tmp_path: Path,
+    question: str,
+):
+    provider = StubProvider(['{"answer": "must not run"}'])
+
+    with pytest.raises(ValueError):
+        asyncio.run(
+            ask_question(
+                question,
+                provider,
+                tmp_path / "vault",
+                "Wiki",
+                "Concepts",
+                "Queries",
+                "Raw",
+                depth="shallow",
+            )
+        )
+
+    assert provider.prompts == []
+    assert not (tmp_path / "vault").exists()
+
+
+def test_repeated_query_refresh_excludes_its_own_page_from_support(tmp_path: Path):
+    vault = tmp_path / "vault"
+    first_provider = StubProvider(['{"answer": "Original evidence."}'])
+    first = asyncio.run(
+        ask_question(
+            "What is RLHF?",
+            first_provider,
+            vault,
+            "Wiki",
+            "Concepts",
+            "Queries",
+            "Raw",
+            depth="shallow",
+        )
+    )
+    first_relative_path = f"Wiki/Queries/{first.slug}"
+
+    refresh_provider = StubProvider(['{"answer": "Refreshed answer."}'])
+    refreshed = asyncio.run(
+        ask_question(
+            "What is RLHF?",
+            refresh_provider,
+            vault,
+            "Wiki",
+            "Concepts",
+            "Queries",
+            "Raw",
+            depth="shallow",
+        )
+    )
+
+    assert "Original evidence." not in refresh_provider.prompts[0]
+    refreshed_text = refreshed.path.read_text(encoding="utf-8")
+    assert f"[[{first_relative_path}]]" not in refreshed_text
+    assert "Refreshed answer." in refreshed_text
 
 
 def test_ask_files_query_when_enabled(tmp_path: Path):

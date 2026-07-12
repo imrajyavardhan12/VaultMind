@@ -27,7 +27,8 @@ def ask(
 
     Use --preview to print the answer without filing it.
     """
-    setup_logging(verbose=verbose)
+    if not preview:
+        setup_logging(verbose=verbose)
     config = load_config()
 
     if depth not in ("shallow", "deep"):

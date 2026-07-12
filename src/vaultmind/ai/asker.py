@@ -107,7 +107,14 @@ def _extract_gaps_from_assessment(assessment_response: str) -> list[str]:
         data = json.loads(cleaned)
         gaps = data.get("gaps", [])
         if isinstance(gaps, list):
-            return [g for g in gaps if isinstance(g, str) and g.strip()]
+            normalized: list[str] = []
+            for gap in gaps:
+                if not isinstance(gap, str):
+                    continue
+                clean_gap = " ".join(gap.split())
+                if clean_gap and clean_gap not in normalized:
+                    normalized.append(clean_gap)
+            return normalized
         return []
     except (json.JSONDecodeError, TypeError):
         pass
@@ -123,9 +130,18 @@ def _initial_search(
     folders_wiki: str,
     folders_wiki_concepts: str,
     folders_raw: str,
+    folders_wiki_queries: str = "📊 Queries",
+    excluded_wiki_paths: set[str] | None = None,
 ) -> GatheredContext:
-    """Perform initial search across wiki concepts and raw sources."""
-    wiki_notes = _load_wiki_concepts(vault_path, folders_wiki, folders_wiki_concepts)
+    """Search concept and filed-query pages, falling back to Raw when needed."""
+    excluded = excluded_wiki_paths or set()
+    wiki_notes = [
+        note
+        for note in _load_searchable_wiki_notes(
+            vault_path, folders_wiki, folders_wiki_concepts, folders_wiki_queries
+        )
+        if note.relative_path not in excluded
+    ]
     wiki_matches = search_notes(wiki_notes, question, limit=MAX_CONTEXT_NOTES) if wiki_notes else []
     matched_wiki_notes = [match.note for match in wiki_matches]
 
@@ -137,23 +153,28 @@ def _initial_search(
     return GatheredContext(wiki_notes=matched_wiki_notes, raw_sources=raw_sources)
 
 
-def _load_wiki_concepts(
+def _load_searchable_wiki_notes(
     vault_path: Path,
     folders_wiki: str,
     folders_wiki_concepts: str,
+    folders_wiki_queries: str | None,
 ) -> list[VaultNoteRecord]:
-    """Load wiki concept pages as note records for ask-time search."""
+    """Load concept and filed-query pages as ask-time note records."""
     wiki_notes: list[VaultNoteRecord] = []
-    wiki_concepts_dir = vault_path / folders_wiki / folders_wiki_concepts
-    if wiki_concepts_dir.exists():
-        for md_file in wiki_concepts_dir.glob("*.md"):
+    for folder in (folders_wiki_concepts, folders_wiki_queries):
+        if folder is None:
+            continue
+        wiki_dir = vault_path / folders_wiki / folder
+        if not wiki_dir.exists():
+            continue
+        for md_file in wiki_dir.glob("*.md"):
             frontmatter = _read_frontmatter(md_file)
             if not frontmatter:
                 continue
 
             body = _strip_frontmatter(md_file.read_text(encoding="utf-8"))
             title = str(frontmatter.get("title") or md_file.stem.replace("-", " ").title())
-            saved_at = _parse_datetime(frontmatter.get("saved"))
+            saved_at = _parse_datetime(frontmatter.get("saved") or frontmatter.get("created"))
 
             wiki_notes.append(VaultNoteRecord(
                 path=md_file,
@@ -176,6 +197,15 @@ def _load_wiki_concepts(
     return wiki_notes
 
 
+def _load_wiki_concepts(
+    vault_path: Path,
+    folders_wiki: str,
+    folders_wiki_concepts: str,
+) -> list[VaultNoteRecord]:
+    """Load only concept pages (kept for callers that need the old helper)."""
+    return _load_searchable_wiki_notes(vault_path, folders_wiki, folders_wiki_concepts, None)
+
+
 def _wiki_context_is_sufficient(matches: list[SearchMatch]) -> bool:
     """Return True when wiki matches are strong enough to skip Raw fallback."""
     return bool(matches) and matches[0].score >= MIN_WIKI_CONTEXT_SCORE
@@ -188,45 +218,44 @@ def _follow_up_gap(
     folders_wiki: str,
     folders_wiki_concepts: str,
     folders_raw: str,
+    folders_wiki_queries: str = "📊 Queries",
+    excluded_wiki_paths: set[str] | None = None,
 ) -> None:
-    """Search for content related to a gap and add to gathered context."""
-    wiki_concepts_dir = vault_path / folders_wiki / folders_wiki_concepts
-    if not wiki_concepts_dir.exists() or len(gathered.wiki_notes) >= MAX_CONTEXT_NOTES:
-        return
-
-    existing_titles: set[str] = {n.title.lower() for n in gathered.wiki_notes}
-    for md_file in wiki_concepts_dir.glob("*.md"):
-        body = _strip_frontmatter(md_file.read_text(encoding="utf-8"))
-        if gap.lower() not in body.lower():
-            continue
-
-        frontmatter = _read_frontmatter(md_file)
-        title = str(frontmatter.get("title") or md_file.stem)
-        if title.lower() in existing_titles:
-            continue
-        saved_at = _parse_datetime(frontmatter.get("saved"))
-        note = VaultNoteRecord(
-            path=md_file,
-            relative_path=md_file.relative_to(vault_path).with_suffix("").as_posix(),
-            title=title,
-            saved_at=saved_at,
-            tags=_parse_tags(frontmatter.get("tags")),
-            source_type=str(frontmatter.get("kind")) if frontmatter.get("kind") else None,
-            rating=None,
-            read_time_minutes=None,
-            status=None,
-            canonical_url=None,
-            source=None,
-            vaultmind=bool(frontmatter.get("vaultmind")),
-            body=body,
-            summary=_extract_summary(body),
-            raw_frontmatter=frontmatter,
+    """Search one gap and add bounded, deduplicated wiki/Raw context."""
+    excluded = excluded_wiki_paths or set()
+    all_wiki_notes = [
+        note
+        for note in _load_searchable_wiki_notes(
+            vault_path, folders_wiki, folders_wiki_concepts, folders_wiki_queries
         )
-        gathered.wiki_notes.append(note)
+        if note.relative_path not in excluded
+    ]
+    wiki_matches = search_notes(all_wiki_notes, gap, limit=MAX_CONTEXT_NOTES)
+    existing_wiki = {note.relative_path for note in gathered.wiki_notes}
+    existing_titles = {note.title.casefold() for note in gathered.wiki_notes}
+    added_wiki_matches: list[SearchMatch] = []
+    for match in wiki_matches:
+        if len(gathered.wiki_notes) >= MAX_CONTEXT_NOTES:
+            break
+        if (
+            match.note.relative_path not in existing_wiki
+            and match.note.title.casefold() not in existing_titles
+        ):
+            gathered.wiki_notes.append(match.note)
+            added_wiki_matches.append(match)
+            existing_wiki.add(match.note.relative_path)
+            existing_titles.add(match.note.title.casefold())
+
+    # Only new evidence can satisfy a newly identified gap. A strong result that
+    # was already gathered must not suppress the Raw fallback.
+    if _wiki_context_is_sufficient(added_wiki_matches):
+        return
 
     existing_raw = {source.relative_path for source in gathered.raw_sources}
     for source in _search_raw_sources(gap, vault_path, folders_raw):
-        if source.relative_path not in existing_raw and len(gathered.raw_sources) < MAX_CONTEXT_SOURCES:
+        if len(gathered.raw_sources) >= MAX_CONTEXT_SOURCES:
+            break
+        if source.relative_path not in existing_raw:
             gathered.raw_sources.append(source)
             existing_raw.add(source.relative_path)
 
@@ -369,11 +398,14 @@ def _tokenize_query(query: str) -> set[str]:
 
 
 def _parse_datetime(value: object) -> datetime | None:
-    """Parse a datetime string from frontmatter."""
+    """Parse a datetime value from frontmatter."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     if not isinstance(value, str):
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     except ValueError:
         return None
 
@@ -381,11 +413,66 @@ def _parse_datetime(value: object) -> datetime | None:
 # ---- Answer filing ----
 
 
+def _validated_question(question: str) -> str:
+    """Return a single-line non-empty question suitable for an exact H1."""
+    clean = question.strip()
+    if not clean:
+        raise ValueError("question must not be empty")
+    if "\n" in clean or "\r" in clean:
+        raise ValueError("question must be a single line")
+    return clean
+
+
 def _slug_from_question(question: str) -> str:
     """Convert a question string to a query slug for filenames."""
     text = re.sub(r"[^\w\s]", "", question.strip().lower())
     text = re.sub(r"\s+", "-", text)
     return slugify(text)[:60] or "query"
+
+
+def _sanitize_answer_headings(answer: str) -> str:
+    """Demote provider H1/H2 headings without changing fenced examples."""
+    lines = answer.strip().splitlines()
+    sanitized: list[str] = []
+    fence_char: str | None = None
+    fence_length = 0
+    index = 0
+
+    while index < len(lines):
+        line = lines[index]
+        if fence_char is not None:
+            sanitized.append(line)
+            closing = re.match(rf"^ {{0,3}}{re.escape(fence_char)}{{{fence_length},}}[ \t]*$", line)
+            if closing:
+                fence_char = None
+                fence_length = 0
+            index += 1
+            continue
+
+        opening = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if opening:
+            marker = opening.group(1)
+            info = opening.group(2)
+            # CommonMark only prohibits backticks in backtick-fence info strings.
+            if marker[0] == "~" or "`" not in info:
+                fence_char = marker[0]
+                fence_length = len(marker)
+                sanitized.append(line)
+                index += 1
+                continue
+
+        if index + 1 < len(lines) and line.strip():
+            setext = re.match(r"^ {0,3}(?:=+|-+)[ \t]*$", lines[index + 1])
+            if setext:
+                indent = line[: len(line) - len(line.lstrip(" "))]
+                sanitized.append(f"{indent}### {line.strip()}")
+                index += 2
+                continue
+
+        sanitized.append(re.sub(r"^( {0,3})#{1,2}[ \t]+", r"\1### ", line))
+        index += 1
+
+    return "\n".join(sanitized)
 
 
 def _render_answer_markdown(
@@ -396,28 +483,42 @@ def _render_answer_markdown(
     supporting_sources: list[str],
     iterations: int,
     now: datetime,
+    gaps: list[str] | None = None,
 ) -> str:
-    """Render the full markdown body for an answer page."""
+    """Render a query page that deterministically satisfies the page contract."""
+    # Provider output is content, not page structure. Demoting headings prevents it
+    # from introducing another H1 or colliding with the required H2 sections.
+    safe_answer = _sanitize_answer_headings(answer)
+    safe_question = _validated_question(question)
+    safe_notes = [" ".join(path.split()) for path in supporting_notes]
+    safe_sources = [" ".join(source.split()) for source in supporting_sources]
+    safe_gaps = [" ".join(gap.split()) for gap in gaps or []]
     lines = [
-        f"# {question}",
+        f"# {safe_question}",
         "",
-        "## 💡 Answer",
-        answer.strip(),
+        "## Answer",
+        safe_answer,
         "",
-        "## Supporting Notes",
+        "## Supporting Wiki Pages",
     ]
-    if supporting_notes:
-        for path in supporting_notes:
+    if safe_notes:
+        for path in safe_notes:
             lines.append(f"- [[{path}]]")
     else:
-        lines.append("*No wiki notes used.*")
+        lines.append("*No wiki pages used.*")
 
-    lines.extend(["", "## Supporting Sources"])
-    if supporting_sources:
-        for source in supporting_sources:
+    lines.extend(["", "## Supporting Raw Sources"])
+    if safe_sources:
+        for source in safe_sources:
             lines.append(f"- {source}")
     else:
         lines.append("*No raw sources used.*")
+
+    lines.extend(["", "## Follow-up Questions"])
+    if safe_gaps:
+        lines.extend(f"- {gap}" for gap in safe_gaps)
+    else:
+        lines.append("*No follow-up questions.*")
 
     lines.extend([
         "",
@@ -447,79 +548,86 @@ async def ask_question(
     The answer is written to Wiki/📊 Queries/{slug}.md so future questions
     can read it and build on it — this is the compound interest engine.
     """
+    question = _validated_question(question)
     max_iters = 1 if depth == "shallow" else MAX_ITERATIONS
+    slug = _slug_from_question(question)
+    query_relative_path = (
+        Path(folders_wiki) / folders_wiki_queries / slug
+    ).as_posix()
+    excluded_wiki_paths = {query_relative_path}
 
-    gathered = _initial_search(question, vault_path, folders_wiki, folders_wiki_concepts, folders_raw)
+    gathered = _initial_search(
+        question,
+        vault_path,
+        folders_wiki,
+        folders_wiki_concepts,
+        folders_raw,
+        folders_wiki_queries,
+        excluded_wiki_paths,
+    )
     log.info("ask_initial_search", wiki=len(gathered.wiki_notes), raw=len(gathered.raw_sources))
 
-    note_paths_used: set[str] = set()
-    source_urls_used: set[str] = set()
-    for note in gathered.wiki_notes:
-        note_paths_used.add(note.relative_path)
-    for source in gathered.raw_sources:
-        source_urls_used.add(source.source_url or source.relative_path)
-
-    context = _build_context_text(question, gathered)
-    user_prompt = ASK_USER_PROMPT.format(question=question, context=context)
-
-    try:
-        response = await provider.complete(user_prompt, system=ASK_SYSTEM_PROMPT)
-    except Exception as exc:
-        log.error("ask_llm_failed", error=str(exc))
-        raise
-
-    answer = _extract_answer_text(response)
-    iteration = 1
+    answer = ""
+    iteration = 0
     gaps: list[str] = []
 
-    if iteration < max_iters:
-        assess_prompt = ASK_SELF_ASSESS_PROMPT.format(question=question, answer=response)
+    while iteration < max_iters:
+        context = _build_context_text(question, gathered)
+        user_prompt = ASK_USER_PROMPT.format(question=question, context=context)
+        try:
+            response = await provider.complete(user_prompt, system=ASK_SYSTEM_PROMPT)
+        except Exception as exc:
+            log.error("ask_llm_failed", iteration=iteration + 1, error=str(exc))
+            raise
+
+        answer = _extract_answer_text(response)
+        iteration += 1
+
+        # Shallow mode deliberately makes exactly one provider call.
+        if depth == "shallow":
+            break
+
+        assess_prompt = ASK_SELF_ASSESS_PROMPT.format(question=question, answer=answer)
         try:
             assessment = await provider.complete(assess_prompt, system=ASK_SYSTEM_PROMPT)
             gaps = _extract_gaps_from_assessment(assessment)
         except Exception as exc:
-            log.warning("ask_self_assess_failed", error=str(exc))
+            log.warning("ask_self_assess_failed", iteration=iteration, error=str(exc))
             gaps = []
 
-        if gaps:
-            log.info("ask_follow_up", iteration=iteration, gaps=gaps)
-            for gap in gaps:
-                _follow_up_gap(gap, gathered, vault_path, folders_wiki, folders_wiki_concepts, folders_raw)
-
-            note_paths_used.clear()
-            for note in gathered.wiki_notes:
-                note_paths_used.add(note.relative_path)
-            source_urls_used.clear()
-            for source in gathered.raw_sources:
-                source_urls_used.add(source.source_url or source.relative_path)
-
-            gathered.wiki_notes = gathered.wiki_notes[:MAX_CONTEXT_NOTES]
-            context = _build_context_text(question, gathered)
-            user_prompt = ASK_USER_PROMPT.format(question=question, context=context)
-            response = await provider.complete(user_prompt, system=ASK_SYSTEM_PROMPT)
-            answer = _extract_answer_text(response)
-            iteration = 2
-
-            if iteration < max_iters:
-                assess_prompt = ASK_SELF_ASSESS_PROMPT.format(question=question, answer=response)
-                try:
-                    assessment = await provider.complete(assess_prompt, system=ASK_SYSTEM_PROMPT)
-                    gaps = _extract_gaps_from_assessment(assessment)
-                except Exception:
-                    gaps = []
-        else:
+        if not gaps:
             log.info("ask_no_gaps", iteration=iteration)
+            break
+        if iteration >= max_iters:
+            break
 
-    slug = _slug_from_question(question)
+        log.info("ask_follow_up", iteration=iteration, gaps=gaps)
+        for gap in gaps:
+            _follow_up_gap(
+                gap,
+                gathered,
+                vault_path,
+                folders_wiki,
+                folders_wiki_concepts,
+                folders_raw,
+                folders_wiki_queries,
+                excluded_wiki_paths,
+            )
+
     now = datetime.now(UTC)
 
+    note_paths_used = sorted({note.relative_path for note in gathered.wiki_notes})
+    source_urls_used = sorted(
+        {source.source_url or source.relative_path for source in gathered.raw_sources}
+    )
     body = _render_answer_markdown(
         question,
         answer,
-        supporting_notes=sorted(note_paths_used),
-        supporting_sources=sorted(source_urls_used),
+        supporting_notes=note_paths_used,
+        supporting_sources=source_urls_used,
         iterations=iteration,
         now=now,
+        gaps=gaps,
     )
 
     queries_dir = vault_path / folders_wiki / folders_wiki_queries

@@ -32,7 +32,7 @@ from vaultmind.core.manifest import (
 from vaultmind.core.raw_scanner import RawSourceRecord, scan_raw_sources
 from vaultmind.core.wiki_log import append_wiki_log
 from vaultmind.core.writer import write_markdown_page
-from vaultmind.schemas import Manifest
+from vaultmind.schemas import Manifest, ManifestSource
 from vaultmind.utils.display import print_info, print_success, print_warning
 from vaultmind.utils.hashing import content_hash
 from vaultmind.utils.logging import setup_logging
@@ -40,10 +40,26 @@ from vaultmind.utils.logging import setup_logging
 log = structlog.get_logger()
 
 
+def _validate_max_touches(value: int) -> int:
+    """Reject negative --max-touches values at the Typer parse layer."""
+    if value < 0:
+        raise typer.BadParameter("--max-touches must be >= 0")
+    return value
+
+
 def compile(
     full: bool = typer.Option(False, "--full", help="Full rebuild — skip manifest diff"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change without writing"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging"),
+    max_touches: int = typer.Option(
+        5,
+        "--max-touches",
+        help=(
+            "Max existing concept pages each source may touch in its "
+            "Connections section. 0 disables propagation."
+        ),
+        callback=_validate_max_touches,
+    ),
 ) -> None:
     """Compile source notes into wiki concept articles.
 
@@ -99,7 +115,14 @@ def compile(
     provider = get_provider(config, tier="deep")
 
     result, slug_to_urls = asyncio.run(
-        _run_compile_async(sources_to_compile, manifest, config, provider, dry_run)
+        _run_compile_async(
+            sources_to_compile,
+            manifest,
+            config,
+            provider,
+            dry_run,
+            max_touches=max_touches,
+        )
     )
 
     if dry_run:
@@ -113,12 +136,19 @@ def compile(
     if result.articles_created > 0 or result.articles_updated > 0:
         _rebuild_wiki_index(config, manifest, provider)
 
-    # Print success unless we're in full-failure case (no creations, no updates, but errors exist)
-    if not (result.articles_created == 0 and result.articles_updated == 0 and result.errors):
+    # Print success unless we're in the full-failure case
+    # (no creations, no updates, no touches, but errors exist).
+    if not (
+        result.articles_created == 0
+        and result.articles_updated == 0
+        and result.articles_touched == 0
+        and result.errors
+    ):
         print_success(
             "Compile complete",
             f"{result.articles_created} created, "
             f"{result.articles_updated} updated, "
+            f"{result.articles_touched} touched, "
             f"{result.sources_compiled} sources processed."
         )
 
@@ -135,6 +165,8 @@ async def _run_compile_async(
     config: AppConfig,
     provider: Provider,
     dry_run: bool,
+    *,
+    max_touches: int = 5,
 ) -> tuple[CompileResult, dict[str, list[str]]]:
     result, slug_to_urls = await compile_sources(
         sources,
@@ -144,25 +176,47 @@ async def _run_compile_async(
         config.folders,
         dry_run=dry_run,
         existing_concepts=_existing_concept_summaries(config),
+        max_touches=max_touches,
     )
 
-    if not dry_run and (result.articles_created > 0 or result.articles_updated > 0):
-        # slug_to_urls maps slug → source_urls
-        # For raw sources, manifest keys are source_url (preferred) or relative_path
+    if not dry_run and (
+        result.articles_created > 0
+        or result.articles_updated > 0
+        or result.articles_touched > 0
+    ):
+        # Reconcile article provenance in both directions. A propagation failure
+        # may happen after article writes, so retain its previous hash (or a
+        # non-current placeholder for a new source) to make incremental retry
+        # deterministic while still recording any durable article references.
         source_key_to_source = {s.source_url or s.relative_path: s for s in sources}
-
+        source_to_articles: dict[str, list[str]] = {}
         for slug, urls in slug_to_urls.items():
-            for url in urls:
-                source = source_key_to_source.get(url)
-                if source is None:
-                    continue
-                upsert_source(
+            for source_key in urls:
+                articles = source_to_articles.setdefault(source_key, [])
+                if slug not in articles:
+                    articles.append(slug)
+        for source_key, touched_slugs in result.propagation_touches_by_source.items():
+            articles = source_to_articles.setdefault(source_key, [])
+            articles.extend(slug for slug in touched_slugs if slug not in articles)
+
+        for source_key, articles in source_to_articles.items():
+            source = source_key_to_source.get(source_key)
+            if source is None:
+                continue
+            if source_key in result.propagation_failed_sources:
+                _merge_failed_source_provenance(
                     manifest,
-                    url=url,
-                    content_hash=source.content_hash,
-                    saved_at=datetime.now(UTC),
-                    wiki_articles=[slug],
+                    source_key=source_key,
+                    wiki_articles=articles,
                 )
+                continue
+            upsert_source(
+                manifest,
+                url=source_key,
+                content_hash=source.content_hash,
+                saved_at=datetime.now(UTC),
+                wiki_articles=articles,
+            )
 
         # Rebuild manifest wiki_articles from disk (scan wiki concepts directory)
         wiki_concepts_dir = config.vault_path / config.folders.wiki / config.folders.wiki_concepts
@@ -201,6 +255,29 @@ async def _run_compile_async(
         )
 
     return result, slug_to_urls
+
+
+def _merge_failed_source_provenance(
+    manifest: Manifest,
+    *,
+    source_key: str,
+    wiki_articles: list[str],
+) -> None:
+    """Record durable backlinks without marking a failed source current."""
+    existing = manifest.sources.get(source_key)
+    if existing is not None:
+        merged_articles = list(dict.fromkeys([*existing.wiki_articles, *wiki_articles]))
+        manifest.sources[source_key] = existing.model_copy(
+            update={"wiki_articles": merged_articles}
+        )
+        return
+
+    manifest.sources[source_key] = ManifestSource(
+        content_hash="",
+        saved_at=datetime.now(UTC),
+        compiled_at=None,
+        wiki_articles=list(dict.fromkeys(wiki_articles)),
+    )
 
 
 def _extract_article_sources(article_path: Path) -> list[str]:
@@ -314,6 +391,8 @@ def _render_dry_run_summary(
         lines.append(f"  → {slug}")
         for url in urls:
             lines.append(f"     - {url}")
+
+    lines.extend(["", "Propagation: deferred in dry-run."])
 
     return "\n".join(lines)
 

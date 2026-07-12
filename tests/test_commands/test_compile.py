@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
@@ -47,7 +48,7 @@ def test_compile_incremental_includes_relative_path_only_sources(monkeypatch, te
     monkeypatch.setattr(compile_cmd, "print_success", lambda title, message: None)
     monkeypatch.setattr(compile_cmd, "print_warning", lambda message: None)
 
-    async def fake_run(sources, manifest, config, provider, dry_run):
+    async def fake_run(sources, manifest, config, provider, dry_run, **kwargs):
         called["run_called"] = True
         called["sources"] = sources
         return (
@@ -86,8 +87,9 @@ def test_run_compile_async_upserts_manifest_with_relative_path_key(monkeypatch, 
         *,
         dry_run=False,
         existing_concepts=None,
+        max_touches=5,
     ):
-        del manifest_arg, provider, vault_path, folders, dry_run, existing_concepts
+        del manifest_arg, provider, vault_path, folders, dry_run, existing_concepts, max_touches
         return (
             compile_cmd.CompileResult(
                 articles_created=1,
@@ -133,8 +135,9 @@ def test_run_compile_async_merges_one_source_into_multiple_concepts(monkeypatch,
         *,
         dry_run=False,
         existing_concepts=None,
+        max_touches=5,
     ):
-        del manifest_arg, provider, vault_path, folders, dry_run, existing_concepts
+        del manifest_arg, provider, vault_path, folders, dry_run, existing_concepts, max_touches
         return (
             compile_cmd.CompileResult(
                 articles_created=2,
@@ -182,8 +185,9 @@ def test_run_compile_async_writes_manifest_and_compile_log(monkeypatch, test_con
         *,
         dry_run=False,
         existing_concepts=None,
+        max_touches=5,
     ):
-        del manifest_arg, provider, vault_path, folders, dry_run, existing_concepts
+        del manifest_arg, provider, vault_path, folders, dry_run, existing_concepts, max_touches
         return (
             compile_cmd.CompileResult(
                 articles_created=1,
@@ -253,8 +257,9 @@ def test_run_compile_async_preserves_article_frontmatter_sources_in_manifest(
         *,
         dry_run=False,
         existing_concepts=None,
+        max_touches=5,
     ):
-        del manifest_arg, provider, vault_path, folders, dry_run, existing_concepts
+        del manifest_arg, provider, vault_path, folders, dry_run, existing_concepts, max_touches
         return (
             compile_cmd.CompileResult(
                 articles_created=0,
@@ -319,7 +324,7 @@ def test_compile_dry_run_writes_no_state_files(monkeypatch, test_config):
     monkeypatch.setattr(compile_cmd, "print_warning", lambda message: None)
     monkeypatch.setattr(compile_cmd, "print_success", lambda title, message: None)
 
-    async def fake_run(sources, manifest, config, provider, dry_run):
+    async def fake_run(sources, manifest, config, provider, dry_run, **kwargs):
         assert dry_run is True
         return (
             compile_cmd.CompileResult(
@@ -417,7 +422,7 @@ def test_compile_exits_nonzero_when_errors_present(monkeypatch, test_config):
 
     monkeypatch.setattr(compile_cmd, "print_warning", capture_warning)
 
-    async def fake_run(sources, manifest, config, provider, dry_run):
+    async def fake_run(sources, manifest, config, provider, dry_run, **kwargs):
         return (
             compile_cmd.CompileResult(
                 articles_created=0,
@@ -464,7 +469,7 @@ def test_compile_prints_each_error_with_concept_name(monkeypatch, test_config):
 
     monkeypatch.setattr(compile_cmd, "print_warning", capture_warning)
 
-    async def fake_run(sources, manifest, config, provider, dry_run):
+    async def fake_run(sources, manifest, config, provider, dry_run, **kwargs):
         return (
             compile_cmd.CompileResult(
                 articles_created=0,
@@ -519,7 +524,7 @@ def test_compile_no_extra_warning_when_no_errors(monkeypatch, test_config):
     monkeypatch.setattr(compile_cmd, "print_warning", capture_warning)
     monkeypatch.setattr(compile_cmd, "print_success", capture_success)
 
-    async def fake_run(sources, manifest, config, provider, dry_run):
+    async def fake_run(sources, manifest, config, provider, dry_run, **kwargs):
         return (
             compile_cmd.CompileResult(
                 articles_created=1,
@@ -548,6 +553,173 @@ def test_compile_no_extra_warning_when_no_errors(monkeypatch, test_config):
     assert success_printed[0][0] == "Compile complete"
 
 
+# ---- --max-touches plumbing ----
+
+
+def test_run_compile_async_threads_max_touches_into_compile_sources(monkeypatch, test_config):
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    captured: dict[str, object] = {}
+
+    async def fake_compile_sources(
+        sources,
+        manifest_arg,
+        provider,
+        vault_path,
+        folders,
+        *,
+        dry_run=False,
+        existing_concepts=None,
+        max_touches=5,
+    ):
+        del manifest_arg, provider, vault_path, folders, dry_run, existing_concepts
+        captured["max_touches"] = max_touches
+        return (
+            compile_cmd.CompileResult(
+                articles_created=0,
+                articles_updated=0,
+                sources_compiled=len(sources),
+                errors=[],
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(compile_cmd, "compile_sources", fake_compile_sources)
+
+    asyncio.run(
+        compile_cmd._run_compile_async(
+            [source],
+            Manifest(),
+            test_config,
+            provider=object(),
+            dry_run=True,
+            max_touches=7,
+        )
+    )
+
+    assert captured["max_touches"] == 7
+
+
+def test_run_compile_async_propagation_touches_land_in_manifest(monkeypatch, test_config):
+    """Touched concept pages should appear in manifest.wiki_articles[target].source_urls
+    via the existing disk-scanning manifest-rebuild loop — no extra code path."""
+    import json
+
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    concepts_dir = (
+        test_config.vault_path / test_config.folders.wiki / test_config.folders.wiki_concepts
+    )
+    concepts_dir.mkdir(parents=True, exist_ok=True)
+    target_path = concepts_dir / "existing-target.md"
+    target_path.write_text(
+        "\n".join(
+            [
+                "---",
+                'title: "Existing Target"',
+                "vaultmind: true",
+                "kind: concept",
+                "sources:",
+                "  - https://example.com/legacy",
+                "---",
+                "",
+                "# Existing Target",
+                "",
+                "## Overview",
+                "",
+                "Some body.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    # Real StubProvider with three responses: triage, article create, touch.
+    class StubProvider:
+        def __init__(self, responses):
+            self.responses = responses
+            self.model = "stub"
+
+        async def complete(self, prompt: str, system: str = "") -> str:
+            del system, prompt
+            return self.responses.pop(0)
+
+    triage = json.dumps(
+        {
+            "concepts": [
+                {
+                    "name": "New Concept",
+                    "status": "new",
+                    "description": "A new concept",
+                    "source_urls": [source.source_url],
+                    "merge_target": None,
+                }
+            ]
+        }
+    )
+    touch = json.dumps(
+        {
+            "touches": [
+                {
+                    "target_slug": "existing-target",
+                    "connection_line": "[[new-concept|New Concept]] — related.",
+                    "relevance": 8,
+                }
+            ]
+        }
+    )
+    provider = StubProvider([triage, "# New Concept\n\nBody", touch])
+
+    manifest = Manifest()
+    asyncio.run(
+        compile_cmd._run_compile_async(
+            [source],
+            manifest,
+            test_config,
+            provider,
+            dry_run=False,
+            max_touches=5,
+        )
+    )
+
+    # The touched concept must now have the new source in its manifest entry,
+    # alongside the pre-existing legacy URL parsed from frontmatter.
+    assert "existing-target" in manifest.wiki_articles
+    target_urls = manifest.wiki_articles["existing-target"].source_urls
+    assert "https://example.com/legacy" in target_urls
+    assert source.source_url in target_urls
+    assert "existing-target" in manifest.sources[source.source_url].wiki_articles
+
+
+def test_compile_cli_max_touches_flag_default_is_five(monkeypatch, test_config):
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(compile_cmd, "setup_logging", lambda verbose=False: None)
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(compile_cmd, "read_manifest", lambda vault_path: Manifest())
+    monkeypatch.setattr(compile_cmd, "scan_raw_sources", lambda config: [source])
+    monkeypatch.setattr(compile_cmd, "get_provider", lambda config, tier="deep": object())
+    monkeypatch.setattr(compile_cmd, "print_info", lambda message: None)
+    monkeypatch.setattr(compile_cmd, "print_success", lambda title, message: None)
+    monkeypatch.setattr(compile_cmd, "print_warning", lambda message: None)
+
+    async def fake_run(sources, manifest, config, provider, dry_run, *, max_touches=5):
+        captured["max_touches"] = max_touches
+        return (
+            compile_cmd.CompileResult(
+                articles_created=0,
+                articles_updated=0,
+                sources_compiled=len(sources),
+                errors=[],
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(compile_cmd, "_run_compile_async", fake_run)
+
+    compile_cmd.compile(full=False, dry_run=True, verbose=False, max_touches=5)
+
+    assert captured["max_touches"] == 5
+
 def test_compile_prints_success_on_clean_noop(monkeypatch, test_config):
     """When compile processes zero sources (no creations, updates, or errors), still print success."""
     source = _raw_source(slug="raw-a", source_url=None)
@@ -570,7 +742,7 @@ def test_compile_prints_success_on_clean_noop(monkeypatch, test_config):
     monkeypatch.setattr(compile_cmd, "print_warning", capture_warning)
     monkeypatch.setattr(compile_cmd, "print_success", capture_success)
 
-    async def fake_run(sources, manifest, config, provider, dry_run):
+    async def fake_run(sources, manifest, config, provider, dry_run, **kwargs):
         return (
             compile_cmd.CompileResult(
                 articles_created=0,
@@ -594,3 +766,58 @@ def test_compile_prints_success_on_clean_noop(monkeypatch, test_config):
     assert len(warnings_printed) == 0
     assert len(success_printed) == 1
     assert success_printed[0][0] == "Compile complete"
+
+
+def test_run_compile_async_propagation_failure_preserves_retry_hash_and_backlinks(
+    monkeypatch, test_config
+):
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    concepts_dir = (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / test_config.folders.wiki_concepts
+    )
+    concepts_dir.mkdir(parents=True, exist_ok=True)
+    (concepts_dir / "concept-a.md").write_text(
+        "---\ntitle: Concept A\nsources:\n"
+        f"  - {source.source_url}\n---\n\n# Concept A\n",
+        encoding="utf-8",
+    )
+    manifest = Manifest(
+        sources={
+            source.source_url: ManifestSource(
+                content_hash="previous-hash",
+                saved_at=datetime.now(UTC),
+                wiki_articles=["older-concept"],
+            )
+        }
+    )
+
+    async def fake_compile_sources(*args, **kwargs):
+        del args, kwargs
+        return (
+            compile_cmd.CompileResult(
+                articles_created=1,
+                articles_updated=0,
+                sources_compiled=1,
+                errors=["Propagation call failed"],
+                propagation_touches_by_source={source.source_url: ["touched-concept"]},
+                propagation_failed_sources={source.source_url},
+            ),
+            {"concept-a": [source.source_url]},
+        )
+
+    monkeypatch.setattr(compile_cmd, "compile_sources", fake_compile_sources)
+
+    asyncio.run(
+        compile_cmd._run_compile_async(
+            [source], manifest, test_config, provider=object(), dry_run=False
+        )
+    )
+
+    entry = manifest.sources[source.source_url]
+    assert entry.content_hash == "previous-hash"
+    assert entry.wiki_articles == ["older-concept", "concept-a", "touched-concept"]
+    assert compile_cmd.get_changed_sources(
+        manifest, {source.source_url: source.content_hash}
+    ) == [source.source_url]
