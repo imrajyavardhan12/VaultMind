@@ -130,13 +130,13 @@ Ask is the second compounding loop.
 vm ask "What is the difference between RLHF and DPO?"
 ```
 
-It should:
+It:
 
-1. Search the compiled wiki first.
-2. Search Raw only when the wiki is insufficient.
-3. Produce a grounded answer.
-4. In normal mode, file the answer to `🗺️ Wiki/📊 Queries/`.
-5. In preview mode, print without writing.
+1. Searches compiled concept pages and previously filed query answers first.
+2. Searches Raw only when the combined wiki results are insufficient.
+3. In deep mode, performs up to three grounded synthesis passes, searching each self-assessed gap between passes and stopping early when no gaps remain.
+4. Files the answer and its final follow-up gaps to `🗺️ Wiki/📊 Queries/` in normal mode, making the answer searchable context for later questions.
+5. Prints without creating files, folders, manifest changes, or log entries in preview mode.
 
 ### Lint
 
@@ -218,7 +218,7 @@ Query pages live in:
 🗺️ Wiki/📊 Queries/{question-slug}.md
 ```
 
-Recommended shape:
+Required shape:
 
 ```markdown
 ---
@@ -308,10 +308,10 @@ The config stores vault paths, folder names, and AI provider preferences. The `.
 
 ## Current Engineering Priorities
 
-1. Make `vm compile` robust: existing concept awareness, multi-concept manifest mappings, index rebuild, log writes.
-2. Make `vm ask` robust: wiki-first search, Raw fallback, true preview mode, filed query metadata.
-3. `vm lint` shipped: deterministic wiki-health report (orphan/uncompiled raw, sourceless pages, broken wikilinks, stale index, duplicate concepts). Next: surface its findings into `compile`/`ask`, and consider opt-in autofix.
-4. Complete the remaining query-page contract: concept-page structure and citations are now enforced during compilation; query pages should fill Follow-up Questions from `vm ask`'s self-assessed gaps (currently computed but discarded).
+1. Strengthen `vm compile` conservatism and recovery for larger, evolving vaults.
+2. Improve Ask retrieval quality without sacrificing wiki-first behavior, bounded context, or preview safety.
+3. Surface deterministic `vm lint` findings in compile and Ask workflows, and evaluate opt-in autofix.
+4. Improve citation verification while preserving readable, contract-compliant concept and query pages.
 
 ## Success Criteria
 

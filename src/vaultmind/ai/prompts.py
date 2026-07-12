@@ -4,26 +4,26 @@ from __future__ import annotations
 
 # ---- vm ask prompts ----
 
-ASK_SYSTEM_PROMPT = """You are VaultMind's query synthesis engine. You answer questions by synthesizing information from the provided wiki articles and raw sources. You must ground every claim in the input materials. Never invent facts, URLs, or conclusions not supported by the sources."""
+ASK_SYSTEM_PROMPT = """You are VaultMind's iterative query synthesis engine. You answer questions by synthesizing only the provided concept pages, previously filed query answers, and Raw sources. Ground every claim in those materials. Never invent facts, URLs, or conclusions. When later context adds evidence, regenerate a complete answer rather than appending an ungrounded correction."""
 
-ASK_USER_PROMPT = """Answer the question below using only the provided wiki articles and raw sources. If the materials do not contain enough information to fully answer the question, say so clearly and identify what additional knowledge would be needed.
+ASK_USER_PROMPT = """Synthesize the best complete answer to the question using only the accumulated context below. The context may include concept pages, previously filed query answers, and Raw sources found during earlier gap searches. If it is insufficient, state the limitation in the answer. Do not create markdown headings.
 
 Return ONLY valid JSON in this exact shape:
-{{"answer": "your comprehensive answer in paragraph form", "gaps": ["what's still unknown or would need follow-up research"]}}
+{{"answer": "your grounded, comprehensive answer in paragraph form"}}
 
 Question: {question}
 
-Context:
+Accumulated context:
 {context}
 """
 
-ASK_SELF_ASSESS_PROMPT = """Given your answer and the question, identify knowledge gaps — areas where the provided sources do not fully address what is being asked. Return only the gaps.
+ASK_SELF_ASSESS_PROMPT = """Assess the latest answer against the original question. Identify only concrete, searchable knowledge gaps that prevent a complete, source-grounded answer. Return an empty list when the latest answer fully addresses the question. Do not repeat gaps that the answer resolved.
 
-Return JSON:
-{{"gaps": ["gap description 1", "gap description 2"]}}
+Return ONLY valid JSON in this exact shape:
+{{"gaps": ["concise searchable gap description"]}}
 
-Question: {question}
-Answer: {answer}
+Original question: {question}
+Latest answer: {answer}
 """
 
 
