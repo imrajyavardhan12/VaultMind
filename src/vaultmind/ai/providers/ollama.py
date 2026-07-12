@@ -6,17 +6,42 @@ from typing import Any
 
 import httpx
 import structlog
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+from vaultmind.ai.providers.base import TRANSIENT_FAILURES, FailureKind
 
 log = structlog.get_logger()
 
 
-class OllamaProvider:
-    """Local Ollama provider.
+def classify_ollama_failure(exc: Exception) -> FailureKind:
+    """Distinguish retryable transport/server failures from permanent HTTP errors."""
+    if isinstance(exc, httpx.TimeoutException):
+        return FailureKind.TIMEOUT
+    if isinstance(exc, httpx.TransportError):
+        return FailureKind.CONNECTION
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status == 401:
+            return FailureKind.AUTHENTICATION
+        if status == 403:
+            return FailureKind.PERMISSION
+        if status == 408:
+            return FailureKind.TIMEOUT
+        if status == 429:
+            return FailureKind.RATE_LIMIT
+        return FailureKind.SERVER if status >= 500 else FailureKind.REQUEST
+    return FailureKind.UNEXPECTED
 
-    Uses Ollama's native `/api/chat` endpoint rather than an OpenAI-compatible
-    shim, so local mode works without an API key.
-    """
+
+def is_retryable_ollama_failure(exc: BaseException) -> bool:
+    """Retry only transient Ollama transport, rate-limit, and server failures."""
+    return isinstance(exc, Exception) and classify_ollama_failure(exc) in TRANSIENT_FAILURES
+
+
+class OllamaProvider:
+    """Local Ollama provider using its native ``/api/chat`` endpoint."""
+
+    name = "ollama"
 
     def __init__(
         self,
@@ -31,14 +56,21 @@ class OllamaProvider:
         self.max_tokens = max_tokens
         self._transport = transport
 
+    classify_failure = staticmethod(classify_ollama_failure)
+
+    @staticmethod
+    def is_retryable_failure(exc: Exception) -> bool:
+        return is_retryable_ollama_failure(exc)
+
     @retry(
+        retry=retry_if_exception(is_retryable_ollama_failure),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=30),
         reraise=True,
     )
     async def complete(self, prompt: str, system: str = "") -> str:
         """Send a prompt to Ollama and return the completion text."""
-        log.info("ollama_request", model=self.model, base_url=self.base_url)
+        log.info("ollama_request", provider=self.name, model=self.model)
 
         messages: list[dict[str, str]] = []
         if system:
@@ -64,7 +96,7 @@ class OllamaProvider:
         if isinstance(message, dict):
             content = message.get("content")
             if isinstance(content, str):
-                log.info("ollama_response", model=self.model)
+                log.info("ollama_response", provider=self.name, model=self.model)
                 return content
 
         fallback = data.get("response")

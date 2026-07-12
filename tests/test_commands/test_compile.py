@@ -10,12 +10,20 @@ from pathlib import Path
 import pytest
 import typer
 
+from vaultmind.ai.providers.base import FailureKind, ProviderAttempt, ProviderExhaustedError
+from vaultmind.ai.providers.fallback import FallbackProvider
 from vaultmind.commands import compile as compile_cmd
 from vaultmind.core.manifest import read_manifest, write_manifest
 from vaultmind.core.raw_scanner import RawSourceRecord
 from vaultmind.core.wiki_log import wiki_log_path
 from vaultmind.schemas import Manifest, ManifestSource, ManifestWikiEntry
 from vaultmind.utils.hashing import content_hash
+
+
+def _provider_exhausted() -> ProviderExhaustedError:
+    return ProviderExhaustedError(
+        (ProviderAttempt("openai", "gpt", FailureKind.SERVER),)
+    )
 
 
 def _raw_source(
@@ -1017,3 +1025,86 @@ def test_run_compile_async_propagation_failure_preserves_retry_hash_and_backlink
     assert compile_cmd.get_changed_sources(
         manifest, {source.source_url: source.content_hash}
     ) == [source.source_url]
+
+
+def test_compile_provider_exhaustion_is_concise_normally(monkeypatch):
+    errors: list[str] = []
+
+    def fail_compile(**kwargs):
+        del kwargs
+        raise _provider_exhausted() from RuntimeError("diagnostic secret")
+
+    monkeypatch.setattr(compile_cmd, "_compile", fail_compile)
+    monkeypatch.setattr(compile_cmd, "print_error", errors.append)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        compile_cmd.compile(full=False, dry_run=False, verbose=False, max_touches=5)
+
+    assert exc_info.value.exit_code == 1
+    assert errors == ["AI provider chain exhausted: openai/gpt: provider server failure"]
+    assert "diagnostic secret" not in errors[0]
+
+
+def test_compile_verbose_preserves_provider_exception_chain(monkeypatch):
+    cause = RuntimeError("diagnostic detail")
+
+    def fail_compile(**kwargs):
+        del kwargs
+        raise _provider_exhausted() from cause
+
+    monkeypatch.setattr(compile_cmd, "_compile", fail_compile)
+    monkeypatch.setattr(compile_cmd, "print_error", lambda message: None)
+
+    with pytest.raises(ProviderExhaustedError) as exc_info:
+        compile_cmd.compile(full=False, dry_run=False, verbose=True, max_touches=5)
+
+    assert exc_info.value.__cause__ is cause
+
+
+def test_index_rebuild_propagates_provider_exhaustion_without_writing(test_config):
+    class FailingProvider:
+        name = "ollama"
+        model = "local-model"
+
+        @staticmethod
+        def classify_failure(exc: Exception) -> FailureKind:
+            del exc
+            return FailureKind.CONNECTION
+
+        @staticmethod
+        def is_retryable_failure(exc: Exception) -> bool:
+            del exc
+            return True
+
+        async def complete(self, prompt: str, system: str = "") -> str:
+            del prompt, system
+            raise ConnectionError("private endpoint")
+
+    concepts_dir = (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / test_config.folders.wiki_concepts
+    )
+    concepts_dir.mkdir(parents=True)
+    article = concepts_dir / "concept-a.md"
+    article.write_text("# Concept A\n", encoding="utf-8")
+    manifest = Manifest(
+        wiki_articles={
+            "concept-a": ManifestWikiEntry(
+                last_updated=datetime.now(UTC),
+                content_hash=content_hash(article.read_text(encoding="utf-8")),
+            )
+        }
+    )
+
+    with pytest.raises(ProviderExhaustedError):
+        compile_cmd._rebuild_wiki_index(
+            test_config, manifest, FallbackProvider([FailingProvider()])
+        )
+
+    index_path = (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / f"{test_config.folders.wiki_index}.md"
+    )
+    assert not index_path.exists()

@@ -19,7 +19,7 @@ import typer
 import yaml
 
 from vaultmind.ai.compiler import CompileResult, compile_sources, rebuild_index
-from vaultmind.ai.providers import Provider, get_provider
+from vaultmind.ai.providers import Provider, ProviderExhaustedError, get_provider
 from vaultmind.config import AppConfig, load_config
 from vaultmind.core.manifest import (
     ManifestReadError,
@@ -36,7 +36,7 @@ from vaultmind.core.raw_scanner import RawSourceRecord, scan_raw_sources
 from vaultmind.core.wiki_log import append_wiki_log
 from vaultmind.core.writer import write_markdown_page
 from vaultmind.schemas import Manifest, ManifestSource
-from vaultmind.utils.display import print_info, print_success, print_warning
+from vaultmind.utils.display import print_error, print_info, print_success, print_warning
 from vaultmind.utils.hashing import content_hash
 from vaultmind.utils.logging import setup_logging
 
@@ -103,11 +103,18 @@ def compile(
         callback=_validate_max_touches,
     ),
 ) -> None:
-    """Compile source notes into wiki concept articles.
+    """Compile source notes into wiki concept articles."""
+    try:
+        _compile(full=full, dry_run=dry_run, verbose=verbose, max_touches=max_touches)
+    except ProviderExhaustedError as exc:
+        print_error(str(exc))
+        if verbose:
+            raise
+        raise typer.Exit(1) from None
 
-    Run without flags for incremental compilation (only new/changed sources).
-    Use --full to recompile everything.
-    """
+
+def _compile(*, full: bool, dry_run: bool, verbose: bool, max_touches: int) -> None:
+    """Implement compile while the CLI boundary handles provider exhaustion."""
     setup_logging(verbose=verbose)
     config = load_config()
 
