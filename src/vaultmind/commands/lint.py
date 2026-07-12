@@ -24,10 +24,10 @@ from vaultmind.core.linter import (
     lint_vault,
     render_lint_markdown,
 )
-from vaultmind.core.manifest import read_manifest
+from vaultmind.core.manifest import ManifestReadError, read_manifest
 from vaultmind.core.raw_scanner import scan_raw_sources
 from vaultmind.core.writer import write_markdown_page
-from vaultmind.utils.display import console, print_info
+from vaultmind.utils.display import console, print_info, print_warning
 from vaultmind.utils.logging import setup_logging
 
 log = structlog.get_logger()
@@ -46,9 +46,17 @@ def lint(
     setup_logging(verbose=verbose)
     config = load_config()
 
-    # Gather materials from disk
+    # Refuse before creating a report directory or writing any vault state.
+    try:
+        manifest = read_manifest(config.vault_path)
+    except ManifestReadError as exc:
+        print_warning(
+            f"Manifest is unreadable; refusing to lint or write a report. {exc}"
+        )
+        raise typer.Exit(1) from exc
+
+    # Gather remaining materials from disk.
     raw_sources = scan_raw_sources(config)
-    manifest = read_manifest(config.vault_path)
 
     # Build concept_pages from 🗺️ Wiki/🧠 Concepts/*.md
     concept_pages = _scan_concept_pages(config)

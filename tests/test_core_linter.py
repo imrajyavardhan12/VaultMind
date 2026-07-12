@@ -16,6 +16,7 @@ from vaultmind.core.linter import (
     check_orphan_raw,
     check_sourceless_wiki,
     check_stale_index,
+    check_stale_manifest,
     check_uncompiled_raw,
     extract_wikilinks,
     lint_vault,
@@ -431,6 +432,34 @@ def test_check_stale_index_no_issues():
     findings = check_stale_index(index_text, concept_slugs)
 
     assert len(findings) == 0
+
+
+# ---- Tests for stale manifest state ----
+
+
+def test_check_stale_manifest_is_deterministic(sample_concept_page):
+    now = datetime.now(UTC)
+    cited_history = "https://example.com/cited-history"
+    missing_uncited = "https://example.com/missing-uncited"
+    manifest = Manifest(
+        sources={
+            cited_history: ManifestSource(content_hash="a", saved_at=now),
+            missing_uncited: ManifestSource(content_hash="b", saved_at=now),
+        },
+        wiki_articles={
+            "z-missing": ManifestWikiEntry(last_updated=now),
+            "a-missing": ManifestWikiEntry(last_updated=now),
+        },
+    )
+    concept = sample_concept_page(slug="present", sources=[cited_history])
+
+    findings = check_stale_manifest([], manifest, [concept])
+
+    assert [(finding.code, finding.subject) for finding in findings] == [
+        ("stale_manifest_concept", "a-missing"),
+        ("stale_manifest_concept", "z-missing"),
+        ("stale_manifest_source", missing_uncited),
+    ]
 
 
 # ---- Tests for check_duplicate_concepts ----

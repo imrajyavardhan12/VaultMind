@@ -326,6 +326,40 @@ def check_stale_index(
     return findings
 
 
+def check_stale_manifest(
+    raw_sources: list[Any],
+    manifest: Any,
+    concept_pages: list[ConceptPage],
+) -> list[LintFinding]:
+    """Report manifest concepts missing on disk and missing uncited Raw sources."""
+    findings: list[LintFinding] = []
+    concept_slugs = {page.slug for page in concept_pages}
+    cited_sources = {source for page in concept_pages for source in page.sources}
+    raw_keys = {source.source_url or source.relative_path for source in raw_sources}
+
+    for slug in sorted(set(manifest.wiki_articles) - concept_slugs):
+        findings.append(
+            LintFinding(
+                code="stale_manifest_concept",
+                severity=LintSeverity.WARNING,
+                message="Manifest concept page is missing from disk",
+                subject=slug,
+            )
+        )
+
+    for source_key in sorted(set(manifest.sources) - raw_keys - cited_sources):
+        findings.append(
+            LintFinding(
+                code="stale_manifest_source",
+                severity=LintSeverity.WARNING,
+                message="Manifest Raw source is missing and cited by no concept",
+                subject=source_key,
+            )
+        )
+
+    return findings
+
+
 def check_duplicate_concepts(
     concept_pages: list[ConceptPage],
 ) -> list[LintFinding]:
@@ -402,7 +436,10 @@ def lint_vault(
     # Check 5: stale_index_entry
     findings.extend(check_stale_index(index_text, concept_slugs))
 
-    # Check 6: duplicate_concept
+    # Check 6: stale manifest state
+    findings.extend(check_stale_manifest(raw_sources, manifest, concept_pages))
+
+    # Check 7: duplicate_concept
     findings.extend(check_duplicate_concepts(concept_pages))
 
     return LintReport(findings=findings)
@@ -434,6 +471,8 @@ def render_lint_markdown(report: LintReport, *, date_label: str) -> str:
         "orphan_raw",
         "sourceless_wiki",
         "stale_index_entry",
+        "stale_manifest_concept",
+        "stale_manifest_source",
         "duplicate_concept",
     ]
 
@@ -457,6 +496,8 @@ def render_lint_markdown(report: LintReport, *, date_label: str) -> str:
             "orphan_raw": "Orphan Raw Sources",
             "sourceless_wiki": "Sourceless Wiki Concepts",
             "stale_index_entry": "Stale Index Entries",
+            "stale_manifest_concept": "Missing Manifest Concept Pages",
+            "stale_manifest_source": "Missing Manifest Raw Sources",
             "duplicate_concept": "Duplicate Concepts",
         }
         title = code_titles.get(code, code)

@@ -22,8 +22,11 @@ from vaultmind.ai.compiler import CompileResult, compile_sources, rebuild_index
 from vaultmind.ai.providers import Provider, get_provider
 from vaultmind.config import AppConfig, load_config
 from vaultmind.core.manifest import (
+    ManifestReadError,
+    ManifestReconciliation,
     get_changed_sources,
     read_manifest,
+    reconcile_manifest,
     update_compiled_at,
     upsert_source,
     upsert_wiki_article,
@@ -47,8 +50,47 @@ def _validate_max_touches(value: int) -> int:
     return value
 
 
+def _concepts_dir(config: AppConfig) -> Path:
+    return config.vault_path / config.folders.wiki / config.folders.wiki_concepts
+
+
+def _report_reconciliation(
+    reconciliation: ManifestReconciliation,
+    *,
+    dry_run: bool,
+) -> None:
+    if not reconciliation.changed:
+        return
+    prefix = "Planned manifest reconciliation" if dry_run else "Manifest reconciliation"
+    print_info(f"{prefix}: {len(reconciliation.repairs)} repair(s)")
+    for repair in reconciliation.repairs:
+        print_info(f"  - {repair}")
+
+
+def _persist_repairs(
+    config: AppConfig,
+    reconciliation: ManifestReconciliation,
+    *,
+    provider: Provider | None,
+) -> None:
+    if not reconciliation.changed:
+        return
+    write_manifest(config.vault_path, reconciliation.manifest)
+    append_wiki_log(
+        config,
+        event="manifest repair",
+        detail=f"{len(reconciliation.repairs)} repair(s)",
+    )
+    if reconciliation.concept_membership_changed and provider is not None:
+        _rebuild_wiki_index(config, reconciliation.manifest, provider)
+
+
 def compile(
-    full: bool = typer.Option(False, "--full", help="Full rebuild — skip manifest diff"),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Force recompilation of all Raw sources without resetting manifest state",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change without writing"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging"),
     max_touches: int = typer.Option(
@@ -69,51 +111,72 @@ def compile(
     setup_logging(verbose=verbose)
     config = load_config()
 
-    manifest = read_manifest(config.vault_path)
+    try:
+        manifest = read_manifest(config.vault_path)
+    except ManifestReadError as exc:
+        print_warning(
+            f"Manifest is unreadable; refusing to compile or write to the vault. {exc}"
+        )
+        raise typer.Exit(1) from exc
 
-    # Scan raw sources from the Raw/ folder (populated by Obsidian Web Clipper)
+    # Scan Raw and reconcile only against canonical state already on disk. Raw
+    # entries are deliberately not inserted until their compilation succeeds.
     all_sources = scan_raw_sources(config)
+    raw_keys = {source.source_url or source.relative_path for source in all_sources}
+    pre_reconciliation = reconcile_manifest(
+        manifest,
+        concepts_dir=_concepts_dir(config),
+        current_raw_keys=raw_keys,
+    )
+    manifest = pre_reconciliation.manifest
+    _report_reconciliation(pre_reconciliation, dry_run=dry_run)
+
     if not all_sources:
+        if not dry_run:
+            _persist_repairs(config, pre_reconciliation, provider=None)
+            if pre_reconciliation.concept_membership_changed:
+                provider = get_provider(config, tier="deep")
+                _rebuild_wiki_index(config, manifest, provider)
         print_warning(
             f"No raw sources found in {config.folders.raw}/. "
             "Add articles via Obsidian Web Clipper first."
         )
         return
 
-    # Build source key -> record map (key is source_url, fallback to relative_path)
-    source_key_to_source = {s.source_url or s.relative_path: s for s in all_sources}
-
-    # Determine which sources to compile
+    source_key_to_source = {source.source_url or source.relative_path: source for source in all_sources}
     if full:
         sources_to_compile = all_sources
-        print_info(f"Full rebuild: {len(sources_to_compile)} raw sources")
+        print_info(f"Forced full recompile: {len(sources_to_compile)} raw sources")
     else:
-        source_hashes = {s.source_url or s.relative_path: s.content_hash for s in all_sources}
-        changed_source_keys = get_changed_sources(
-            manifest,
-            {k: v for k, v in source_hashes.items() if k is not None},
-        )
+        source_hashes = {
+            source.source_url or source.relative_path: source.content_hash
+            for source in all_sources
+        }
+        changed_source_keys = get_changed_sources(manifest, source_hashes)
         sources_to_compile = [
             source_key_to_source[key]
             for key in changed_source_keys
             if key in source_key_to_source
         ]
-        if not sources_to_compile:
-            print_success("All sources are up to date", "Nothing to compile.")
-            return
-        print_info(f"Incremental compile: {len(sources_to_compile)} new/changed sources")
+        if sources_to_compile:
+            print_info(f"Incremental compile: {len(sources_to_compile)} new/changed sources")
 
     if not sources_to_compile:
-        print_warning("No sources to compile.")
+        if dry_run:
+            print_success("Dry run", "No Raw sources would be compiled.")
+        elif pre_reconciliation.changed:
+            repair_provider = (
+                get_provider(config, tier="deep")
+                if pre_reconciliation.concept_membership_changed
+                else None
+            )
+            _persist_repairs(config, pre_reconciliation, provider=repair_provider)
+            print_success("Manifest repaired", "No Raw sources needed compilation.")
+        else:
+            print_success("All sources are up to date", "Nothing to compile.")
         return
 
-    # On full rebuild, reset manifest to start fresh
-    if full:
-        manifest = Manifest()
-
-    # Run compile pipeline
     provider = get_provider(config, tier="deep")
-
     result, slug_to_urls = asyncio.run(
         _run_compile_async(
             sources_to_compile,
@@ -126,14 +189,39 @@ def compile(
     )
 
     if dry_run:
-        print_success(
-            "Dry run",
-            _render_dry_run_summary(sources_to_compile, slug_to_urls),
-        )
+        print_success("Dry run", _render_dry_run_summary(sources_to_compile, slug_to_urls))
         return
 
-    # Write wiki index
-    if result.articles_created > 0 or result.articles_updated > 0:
+    post_reconciliation = reconcile_manifest(
+        manifest,
+        concepts_dir=_concepts_dir(config),
+        current_raw_keys=raw_keys,
+    )
+    manifest = post_reconciliation.manifest
+    if post_reconciliation.changed:
+        write_manifest(config.vault_path, manifest)
+
+    if pre_reconciliation.changed:
+        # _run_compile_async may already have persisted compile state. Record the
+        # independent disk repair so repair activity remains visible.
+        append_wiki_log(
+            config,
+            event="manifest repair",
+            detail=f"{len(pre_reconciliation.repairs)} repair(s)",
+        )
+        if not (
+            result.articles_created
+            or result.articles_updated
+            or result.articles_touched
+            or post_reconciliation.changed
+        ):
+            write_manifest(config.vault_path, manifest)
+
+    membership_changed = (
+        pre_reconciliation.concept_membership_changed
+        or post_reconciliation.concept_membership_changed
+    )
+    if result.articles_created > 0 or result.articles_updated > 0 or membership_changed:
         _rebuild_wiki_index(config, manifest, provider)
 
     # Print success unless we're in the full-failure case

@@ -8,6 +8,28 @@ import typer
 from vaultmind.commands import lint as lint_cmd
 
 
+def test_lint_refuses_corrupted_manifest_without_report(fixture_vault, monkeypatch):
+    manifest_path = fixture_vault.vault_path / "vault.manifest.json"
+    manifest_path.write_text("not-json", encoding="utf-8")
+    inbox_dir = (
+        fixture_vault.vault_path
+        / fixture_vault.folders.wiki
+        / fixture_vault.folders.wiki_inbox
+    )
+    monkeypatch.setattr(lint_cmd, "setup_logging", lambda verbose=False: None)
+    monkeypatch.setattr(lint_cmd, "load_config", lambda: fixture_vault)
+    warnings: list[str] = []
+    monkeypatch.setattr(lint_cmd, "print_warning", warnings.append)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        lint_cmd.lint(preview=False, strict=False, verbose=False)
+
+    assert exc_info.value.exit_code == 1
+    assert "refusing to lint" in warnings[0]
+    assert not list(inbox_dir.glob("lint-*.md"))
+    assert manifest_path.read_text(encoding="utf-8") == "not-json"
+
+
 def test_lint_preview_no_write(fixture_vault, monkeypatch):
     """Test that --preview mode does not write any file."""
     inbox_dir = fixture_vault.vault_path / fixture_vault.folders.wiki / fixture_vault.folders.wiki_inbox

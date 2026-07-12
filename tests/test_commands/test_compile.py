@@ -7,10 +7,11 @@ import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 import typer
 
 from vaultmind.commands import compile as compile_cmd
-from vaultmind.core.manifest import read_manifest
+from vaultmind.core.manifest import read_manifest, write_manifest
 from vaultmind.core.raw_scanner import RawSourceRecord
 from vaultmind.core.wiki_log import wiki_log_path
 from vaultmind.schemas import Manifest, ManifestSource, ManifestWikiEntry
@@ -31,6 +32,201 @@ def _raw_source(
         content_hash=f"hash-{slug}",
         raw_tags=[],
     )
+
+
+def test_compile_refuses_corrupted_manifest_without_writes(monkeypatch, test_config):
+    manifest_path = test_config.vault_path / "vault.manifest.json"
+    manifest_path.write_text("{broken", encoding="utf-8")
+    original = manifest_path.read_bytes()
+    monkeypatch.setattr(compile_cmd, "setup_logging", lambda verbose=False: None)
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    warnings: list[str] = []
+    monkeypatch.setattr(compile_cmd, "print_warning", warnings.append)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        compile_cmd.compile(full=False, dry_run=False, verbose=False)
+
+    assert exc_info.value.exit_code == 1
+    assert "refusing to compile" in warnings[0]
+    assert manifest_path.read_bytes() == original
+    assert not wiki_log_path(test_config).exists()
+
+
+def test_compile_full_preserves_manifest_history(monkeypatch, test_config):
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    historical = "https://example.com/history"
+    concepts_dir = (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / test_config.folders.wiki_concepts
+    )
+    concepts_dir.mkdir(parents=True)
+    (concepts_dir / "concept-a.md").write_text(
+        f"---\nsources:\n  - {historical}\n---\n\n# Concept A\n",
+        encoding="utf-8",
+    )
+    now = datetime.now(UTC)
+    manifest = Manifest(
+        sources={
+            historical: ManifestSource(
+                content_hash="historical-hash",
+                saved_at=now,
+                wiki_articles=["concept-a"],
+            ),
+            source.source_url: ManifestSource(
+                content_hash=source.content_hash,
+                saved_at=now,
+            ),
+        },
+        wiki_articles={
+            "concept-a": ManifestWikiEntry(
+                last_updated=now,
+                source_urls=[historical],
+                content_hash="old-hash",
+            )
+        },
+    )
+    captured: dict[str, Manifest] = {}
+    monkeypatch.setattr(compile_cmd, "setup_logging", lambda verbose=False: None)
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(compile_cmd, "read_manifest", lambda vault_path: manifest)
+    monkeypatch.setattr(compile_cmd, "scan_raw_sources", lambda config: [source])
+    monkeypatch.setattr(compile_cmd, "get_provider", lambda config, tier="deep": object())
+    monkeypatch.setattr(compile_cmd, "print_info", lambda message: None)
+    monkeypatch.setattr(compile_cmd, "print_success", lambda title, message: None)
+    monkeypatch.setattr(compile_cmd, "print_warning", lambda message: None)
+
+    async def fake_run(sources, manifest_arg, config, provider, dry_run, **kwargs):
+        captured["manifest"] = manifest_arg.model_copy(deep=True)
+        assert sources == [source]
+        return compile_cmd.CompileResult(0, 0, 1, []), {}
+
+    monkeypatch.setattr(compile_cmd, "_run_compile_async", fake_run)
+    compile_cmd.compile(full=True, dry_run=True, verbose=False)
+
+    assert historical in captured["manifest"].sources
+    assert "concept-a" in captured["manifest"].wiki_articles
+
+
+def test_compile_repair_only_persists_without_provider_for_hash_repairs(
+    monkeypatch, test_config
+):
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    concepts_dir = (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / test_config.folders.wiki_concepts
+    )
+    concepts_dir.mkdir(parents=True)
+    concept_path = concepts_dir / "concept-a.md"
+    concept_path.write_text(
+        f"---\nsources:\n  - {source.source_url}\n---\n\n# Concept A\n",
+        encoding="utf-8",
+    )
+    now = datetime.now(UTC)
+    write_manifest(
+        test_config.vault_path,
+        Manifest(
+            sources={
+                source.source_url: ManifestSource(
+                    content_hash=source.content_hash,
+                    saved_at=now,
+                    wiki_articles=["concept-a"],
+                )
+            },
+            wiki_articles={
+                "concept-a": ManifestWikiEntry(
+                    last_updated=now,
+                    source_urls=[source.source_url],
+                    content_hash="stale",
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr(compile_cmd, "setup_logging", lambda verbose=False: None)
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(compile_cmd, "scan_raw_sources", lambda config: [source])
+    monkeypatch.setattr(
+        compile_cmd,
+        "get_provider",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("provider not needed")),
+    )
+    monkeypatch.setattr(compile_cmd, "print_info", lambda message: None)
+    monkeypatch.setattr(compile_cmd, "print_success", lambda title, message: None)
+
+    compile_cmd.compile(full=False, dry_run=False, verbose=False)
+
+    repaired = read_manifest(test_config.vault_path)
+    assert repaired.wiki_articles["concept-a"].content_hash == content_hash(
+        concept_path.read_text(encoding="utf-8")
+    )
+    assert "manifest repair" in wiki_log_path(test_config).read_text(encoding="utf-8")
+
+
+def test_compile_membership_repair_rebuilds_index(monkeypatch, test_config):
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    concepts_dir = (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / test_config.folders.wiki_concepts
+    )
+    concepts_dir.mkdir(parents=True)
+    (concepts_dir / "concept-a.md").write_text("# Concept A\n", encoding="utf-8")
+    now = datetime.now(UTC)
+    manifest = Manifest(
+        sources={
+            source.source_url: ManifestSource(
+                content_hash=source.content_hash,
+                saved_at=now,
+            )
+        }
+    )
+    rebuilt: list[set[str]] = []
+    monkeypatch.setattr(compile_cmd, "setup_logging", lambda verbose=False: None)
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(compile_cmd, "read_manifest", lambda vault_path: manifest)
+    monkeypatch.setattr(compile_cmd, "scan_raw_sources", lambda config: [source])
+    monkeypatch.setattr(compile_cmd, "get_provider", lambda config, tier="deep": object())
+    monkeypatch.setattr(compile_cmd, "print_info", lambda message: None)
+    monkeypatch.setattr(compile_cmd, "print_success", lambda title, message: None)
+    monkeypatch.setattr(
+        compile_cmd,
+        "_rebuild_wiki_index",
+        lambda config, repaired, provider: rebuilt.append(set(repaired.wiki_articles)),
+    )
+
+    compile_cmd.compile(full=False, dry_run=False, verbose=False)
+
+    assert rebuilt == [{"concept-a"}]
+    assert "concept-a" in read_manifest(test_config.vault_path).wiki_articles
+
+
+def test_compile_dry_run_does_not_persist_reconciliation(monkeypatch, test_config):
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    now = datetime.now(UTC)
+    manifest = Manifest(
+        sources={
+            source.source_url: ManifestSource(
+                content_hash=source.content_hash,
+                saved_at=now,
+            )
+        },
+        wiki_articles={
+            "missing-concept": ManifestWikiEntry(last_updated=now, content_hash="old")
+        },
+    )
+    write_manifest(test_config.vault_path, manifest)
+    original = (test_config.vault_path / "vault.manifest.json").read_bytes()
+    monkeypatch.setattr(compile_cmd, "setup_logging", lambda verbose=False: None)
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(compile_cmd, "scan_raw_sources", lambda config: [source])
+    monkeypatch.setattr(compile_cmd, "print_info", lambda message: None)
+    monkeypatch.setattr(compile_cmd, "print_success", lambda title, message: None)
+
+    compile_cmd.compile(full=False, dry_run=True, verbose=False)
+
+    assert (test_config.vault_path / "vault.manifest.json").read_bytes() == original
+    assert not wiki_log_path(test_config).exists()
 
 
 def test_compile_incremental_includes_relative_path_only_sources(monkeypatch, test_config):

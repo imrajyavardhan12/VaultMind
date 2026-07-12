@@ -122,6 +122,8 @@ It should:
 
 Compile should be conservative. Updating an existing concept page is usually better than creating a duplicate page. Article generation and updates are grounded in bounded Raw source packets, and VaultMind deterministically enforces the concept-page headings and synchronizes source citations before each atomic write.
 
+Before diffing Raw sources, compile reconciles the manifest with concept pages on disk. Concept membership, content hashes, frontmatter citations, and source back-references are repaired from those pages. Missing uncited Raw entries are removed, while historical sources still cited by a concept are preserved. Reconciliation never marks a current Raw file as compiled. Repair-only runs persist the repaired manifest and log the repair; concept membership changes also rebuild the index.
+
 ### Ask
 
 Ask is the second compounding loop.
@@ -254,7 +256,8 @@ vm version     # print the version
 No-write/preview modes keep every command safe to dry-run:
 
 ```bash
-vm compile --dry-run          # show what would compile; no writes or propagation calls
+vm compile --dry-run          # show compilation and reconciliation; write nothing
+vm compile --full             # force all current Raw through compile; preserve Wiki and history
 vm compile --max-touches 5    # cap existing pages touched per source (0 disables propagation)
 vm ask "..." --preview        # print the answer without filing it
 vm lint --preview      # print the health report without writing it
@@ -268,7 +271,14 @@ propagation is idempotent against the page currently on disk. If a propagation
 provider call or page write fails, that source's current hash is not recorded;
 the command exits non-zero and the next incremental compile retries the source.
 Touches that were written before a later failure remain recorded in both manifest
-directions. `--dry-run` performs neither propagation calls nor writes.
+directions. `--dry-run` performs neither propagation calls nor writes. `--full` is
+non-destructive: it forces every current Raw source through compilation without
+resetting manifest provenance or deleting Wiki pages.
+
+A missing `vault.manifest.json` starts as an empty version-1 manifest. If an
+existing manifest is malformed, unreadable, schema-invalid, or has an unsupported
+version, compile and lint stop with a non-zero exit before writing anything. The
+file is never silently replaced; repair it or restore a recoverable copy first.
 
 See `vm <command> --help` for all flags.
 
