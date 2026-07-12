@@ -306,6 +306,23 @@ uv run vm init
 
 The config stores vault paths, folder names, and AI provider preferences. The `.env` stores API keys.
 
+### Runtime provider fallback (v0.2.0)
+
+Every completion follows `ai.fallback_chain` in order. VaultMind constructs all
+configured providers that have their required credentials (Ollama requires a base
+URL), then tries them at runtime until one returns a non-empty response. A single
+configured provider uses this same chain abstraction.
+
+Each provider performs bounded retries only for transient connection, timeout,
+rate-limit, and server failures. Authentication, permission, malformed-request,
+and other permanent failures advance immediately to the next provider. Empty
+responses also advance. Cancellation and terminal interrupts are never swallowed.
+
+If the chain is exhausted, `vm ask` and `vm compile` exit non-zero with a concise,
+sanitized list of attempted provider/model pairs. Use `--verbose` for chained
+diagnostics. Structured logs record provider/model attempts and selection, but do
+not include prompts, API keys, or response bodies.
+
 ## Architecture Principles
 
 - Prefer markdown files over hidden state.

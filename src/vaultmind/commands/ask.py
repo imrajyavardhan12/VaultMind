@@ -7,10 +7,10 @@ import asyncio
 import typer
 
 from vaultmind.ai.asker import ask_question
-from vaultmind.ai.providers import get_provider
+from vaultmind.ai.providers import ProviderExhaustedError, get_provider
 from vaultmind.config import load_config
 from vaultmind.core.wiki_log import append_wiki_log
-from vaultmind.utils.display import console, print_info
+from vaultmind.utils.display import console, print_error, print_info
 from vaultmind.utils.logging import setup_logging
 
 
@@ -37,19 +37,25 @@ def ask(
 
     provider = get_provider(config, tier="deep")
 
-    result = asyncio.run(
-        ask_question(
-            question=question,
-            provider=provider,
-            vault_path=config.vault_path,
-            folders_wiki=config.folders.wiki,
-            folders_wiki_concepts=config.folders.wiki_concepts,
-            folders_wiki_queries=config.folders.wiki_queries,
-            folders_raw=config.folders.raw,
-            depth=depth,
-            file_answer=not preview,
+    try:
+        result = asyncio.run(
+            ask_question(
+                question=question,
+                provider=provider,
+                vault_path=config.vault_path,
+                folders_wiki=config.folders.wiki,
+                folders_wiki_concepts=config.folders.wiki_concepts,
+                folders_wiki_queries=config.folders.wiki_queries,
+                folders_raw=config.folders.raw,
+                depth=depth,
+                file_answer=not preview,
+            )
         )
-    )
+    except ProviderExhaustedError as exc:
+        print_error(str(exc))
+        if verbose:
+            raise
+        raise typer.Exit(1) from None
 
     if preview:
         console.print(result.answer)

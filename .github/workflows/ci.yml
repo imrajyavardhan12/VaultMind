@@ -34,3 +34,12 @@ jobs:
 
       - name: Pytest
         run: uv run pytest
+
+      - name: Build wheel and source distribution
+        run: uv build
+
+      - name: Smoke-test installed wheel CLI
+        run: |
+          python -m venv /tmp/vaultmind-wheel-test
+          /tmp/vaultmind-wheel-test/bin/pip install dist/*.whl
+          test "$(/tmp/vaultmind-wheel-test/bin/vm version)" = "VaultMind v0.2.0"
