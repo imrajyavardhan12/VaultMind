@@ -10,7 +10,7 @@ build/
 .venv/
 
 # uv
-uv.lock
+# The root uv.lock is committed for reproducible CI and development installs.
 
 # IDE
 .vscode/

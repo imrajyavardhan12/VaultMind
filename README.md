@@ -284,16 +284,26 @@ See `vm <command> --help` for all flags.
 
 ## Installation
 
+The current source and GitHub release version is 0.2.0. Check that PyPI lists it,
+then install and verify the isolated CLI:
+
 ```bash
-pipx install vaultmind
+python -m pip index versions vaultmind
+pipx install vaultmind==0.2.0
+vm version  # VaultMind v0.2.0
 ```
 
-Or from this repository:
+If PyPI does not list 0.2.0 yet, follow the authorized manual publication procedure
+rather than installing from an unverified artifact. Or run from this repository:
 
 ```bash
 uv sync
 uv run vm init
+uv run vm version
 ```
+
+Maintainers: see [Releasing VaultMind](docs/RELEASING.md) for Trusted Publisher
+setup, protected-environment approval, release verification, and recovery guidance.
 
 ## Configuration
 
