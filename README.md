@@ -318,10 +318,35 @@ The config stores vault paths, folder names, and AI provider preferences. The `.
 
 ### Runtime provider fallback (v0.2.0)
 
+VaultMind supports Anthropic, OpenAI, OpenRouter, and local Ollama at runtime.
 Every completion follows `ai.fallback_chain` in order. VaultMind constructs all
-configured providers that have their required credentials (Ollama requires a base
-URL), then tries them at runtime until one returns a non-empty response. A single
-configured provider uses this same chain abstraction.
+configured providers that have their own required credential (Ollama requires a
+base URL), then tries them at runtime until one returns a non-empty response. A
+single configured provider uses this same chain abstraction.
+
+OpenRouter uses its OpenAI-compatible endpoint with the installed OpenAI SDK while
+remaining a distinct provider in fallback logs and diagnostics. Add its key to
+`~/.config/vaultmind/.env` and configure one or more OpenRouter model slugs:
+
+```dotenv
+OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+```yaml
+ai:
+  fallback_chain: ["anthropic", "openrouter", "openai", "ollama"]
+  providers:
+    openrouter:
+      # Replace these defaults with any model slug listed by OpenRouter.
+      # base_url: "https://openrouter.ai/api/v1"  # Optional override
+      models:
+        fast: "openai/gpt-4.1-mini"
+        deep: "openai/gpt-4.1"
+```
+
+The default OpenRouter API base URL is `https://openrouter.ai/api/v1`. OpenRouter
+is included only when `OPENROUTER_API_KEY` is non-empty; its credential never
+enables direct OpenAI, and `OPENAI_API_KEY` never enables OpenRouter.
 
 Each provider performs bounded retries only for transient connection, timeout,
 rate-limit, and server failures. Authentication, permission, malformed-request,

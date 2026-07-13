@@ -14,6 +14,10 @@ def get_provider(config: AppConfig, tier: str = "fast") -> Provider:
     from vaultmind.ai.providers.anthropic import AnthropicProvider
     from vaultmind.ai.providers.ollama import OllamaProvider
     from vaultmind.ai.providers.openai import OpenAIProvider
+    from vaultmind.ai.providers.openrouter import (
+        DEFAULT_OPENROUTER_BASE_URL,
+        OpenRouterProvider,
+    )
 
     providers: list[Provider] = []
     for provider_name in config.ai.fallback_chain:
@@ -40,6 +44,17 @@ def get_provider(config: AppConfig, tier: str = "fast") -> Provider:
                     api_key=config.env.openai_api_key,
                     model=model,
                     max_tokens=config.ai.max_tokens,
+                )
+            )
+        elif provider_name == "openrouter":
+            if not config.env.openrouter_api_key.strip():
+                continue
+            providers.append(
+                OpenRouterProvider(
+                    api_key=config.env.openrouter_api_key,
+                    model=model,
+                    max_tokens=config.ai.max_tokens,
+                    base_url=provider_config.base_url or DEFAULT_OPENROUTER_BASE_URL,
                 )
             )
         elif provider_name == "ollama":
