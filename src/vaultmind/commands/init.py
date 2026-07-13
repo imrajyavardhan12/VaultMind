@@ -127,22 +127,35 @@ def _ask_provider() -> tuple[str, str]:
     console.print("\n[bold]🤖 AI Provider[/bold]")
     console.print("  1. OpenAI  (gpt-4.1)")
     console.print("  2. Anthropic (claude-sonnet)")
-    console.print("  3. Ollama  (local, no key needed)\n")
+    console.print("  3. OpenRouter (OpenAI-compatible, many models)")
+    console.print("  4. Ollama  (local, no key needed)\n")
 
-    choice = typer.prompt("Choose provider [1/2/3]", default="1")
-    provider_map = {"1": "openai", "2": "anthropic", "3": "ollama"}
+    choice = typer.prompt("Choose provider [1/2/3/4]", default="1")
+    provider_map = {
+        "1": "openai",
+        "2": "anthropic",
+        "3": "openrouter",
+        "4": "ollama",
+    }
     provider = provider_map.get(choice, "openai")
 
     if provider == "ollama":
         console.print("  [green]✓[/green] Selected Ollama (no API key needed)")
         return provider, ""
 
-    key_name = "OpenAI" if provider == "openai" else "Anthropic"
+    key_names = {
+        "anthropic": "Anthropic",
+        "openai": "OpenAI",
+        "openrouter": "OpenRouter",
+    }
+    key_urls = {
+        "anthropic": "https://console.anthropic.com/",
+        "openai": "https://platform.openai.com/api-keys",
+        "openrouter": "https://openrouter.ai/keys",
+    }
+    key_name = key_names[provider]
     console.print("\n  Get your key from:")
-    if provider == "openai":
-        console.print("  [dim]https://platform.openai.com/api-keys[/dim]")
-    else:
-        console.print("  [dim]https://console.anthropic.com/[/dim]")
+    console.print(f"  [dim]{key_urls[provider]}[/dim]")
 
     api_key = typer.prompt(f"\n🔑 {key_name} API key", hide_input=True)
 
@@ -184,7 +197,7 @@ def _write_config(vault_path: Path, provider: str) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     fallback = [provider]
-    for p in ["openai", "anthropic", "ollama"]:
+    for p in ["openai", "anthropic", "openrouter", "ollama"]:
         if p != provider:
             fallback.append(p)
 
@@ -210,6 +223,12 @@ def _write_config(vault_path: Path, provider: str) -> None:
                 "openai": {
                     "models": {"fast": "gpt-4.1-mini", "deep": "gpt-4.1"},
                 },
+                "openrouter": {
+                    "models": {
+                        "fast": "openai/gpt-4.1-mini",
+                        "deep": "openai/gpt-4.1",
+                    },
+                },
                 "ollama": {
                     "base_url": "http://localhost:11434",
                     "models": {"fast": "llama3", "deep": "llama3"},
@@ -229,16 +248,17 @@ def _write_env(provider: str, api_key: str) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     lines = ["# VaultMind secrets — do not share or commit this file"]
-
-    if provider == "anthropic":
-        lines.append(f"ANTHROPIC_API_KEY={api_key}" if api_key else "ANTHROPIC_API_KEY=")
-        lines.append("# OPENAI_API_KEY=")
-    elif provider == "openai":
-        lines.append("# ANTHROPIC_API_KEY=")
-        lines.append(f"OPENAI_API_KEY={api_key}" if api_key else "OPENAI_API_KEY=")
-    else:
-        lines.append("# ANTHROPIC_API_KEY=")
-        lines.append("# OPENAI_API_KEY=")
+    provider_keys = {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+    }
+    selected_key = provider_keys.get(provider)
+    for provider_key in provider_keys.values():
+        if provider_key == selected_key:
+            lines.append(f"{provider_key}={api_key}")
+        else:
+            lines.append(f"# {provider_key}=")
 
     lines.append("")
 

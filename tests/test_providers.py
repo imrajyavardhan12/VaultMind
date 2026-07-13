@@ -23,7 +23,15 @@ from vaultmind.ai.providers.ollama import (
     classify_ollama_failure,
     is_retryable_ollama_failure,
 )
-from vaultmind.ai.providers.openai import classify_openai_failure, is_retryable_openai_failure
+from vaultmind.ai.providers.openai import (
+    OpenAIProvider,
+    classify_openai_failure,
+    is_retryable_openai_failure,
+)
+from vaultmind.ai.providers.openrouter import (
+    DEFAULT_OPENROUTER_BASE_URL,
+    OpenRouterProvider,
+)
 from vaultmind.config import AIConfig, AppConfig, EnvSettings, ProviderConfig, ProviderModels
 
 
@@ -35,6 +43,30 @@ def test_get_anthropic_provider(test_config):
 def test_get_deep_provider(test_config):
     provider = get_provider(test_config, tier="deep")
     assert provider.model == "claude-opus-4-5"
+
+
+def test_openrouter_provider_has_distinct_identity_and_default_endpoint():
+    provider = OpenRouterProvider(api_key="router-key", model="openai/gpt-4.1-mini")
+
+    assert provider.name == "openrouter"
+    assert str(provider._client.base_url).rstrip("/") == DEFAULT_OPENROUTER_BASE_URL
+
+
+def test_openrouter_provider_supports_endpoint_override():
+    provider = OpenRouterProvider(
+        api_key="router-key",
+        model="custom/model",
+        base_url="https://router.example/v1",
+    )
+
+    assert str(provider._client.base_url).rstrip("/") == "https://router.example/v1"
+
+
+def test_direct_openai_provider_keeps_its_identity():
+    provider = OpenAIProvider(api_key="openai-key", model="gpt-4.1-mini")
+
+    assert provider.name == "openai"
+    assert str(provider._client.base_url).rstrip("/") == "https://api.openai.com/v1"
 
 
 def test_get_ollama_provider_without_api_key(tmp_vault):
@@ -295,6 +327,74 @@ def test_sdk_failure_classification_retries_only_transient_errors():
     # SDK-independent unexpected exceptions must never be retried.
     assert classify_anthropic_failure(ValueError("secret")) is FailureKind.UNEXPECTED
     assert classify_openai_failure(ValueError("secret")) is FailureKind.UNEXPECTED
+
+
+def test_registry_filters_openrouter_by_its_own_credential_and_preserves_order(
+    tmp_vault,
+):
+    config = AppConfig(
+        vault_path=tmp_vault,
+        ai=AIConfig(
+            fallback_chain=["ollama", "openrouter", "anthropic", "openai"],
+            providers={
+                "ollama": ProviderConfig(
+                    base_url="http://ollama.test",
+                    models=ProviderModels(fast="local-fast", deep="local-deep"),
+                ),
+                "openrouter": ProviderConfig(
+                    base_url="https://router.example/v1",
+                    models=ProviderModels(fast="router-fast", deep="router-deep"),
+                ),
+                "anthropic": ProviderConfig(
+                    models=ProviderModels(fast="claude-fast", deep="claude-deep")
+                ),
+                "openai": ProviderConfig(
+                    models=ProviderModels(fast="gpt-fast", deep="gpt-deep")
+                ),
+            },
+        ),
+        env=EnvSettings(
+            anthropic_api_key="anthropic-key",
+            openai_api_key="",
+            openrouter_api_key="router-key",
+        ),
+    )
+
+    provider = get_provider(config, tier="deep")
+
+    assert isinstance(provider, FallbackProvider)
+    assert [(item.name, item.model) for item in provider.providers] == [
+        ("ollama", "local-deep"),
+        ("openrouter", "router-deep"),
+        ("anthropic", "claude-deep"),
+    ]
+    openrouter_provider = provider.providers[1]
+    assert isinstance(openrouter_provider, OpenRouterProvider)
+    assert str(openrouter_provider._client.base_url).rstrip("/") == "https://router.example/v1"
+
+
+def test_registry_does_not_use_openai_credential_for_openrouter(tmp_vault):
+    config = AppConfig(
+        vault_path=tmp_vault,
+        ai=AIConfig(
+            fallback_chain=["openrouter", "openai"],
+            providers={
+                "openrouter": ProviderConfig(
+                    models=ProviderModels(fast="router-fast", deep="router-deep")
+                ),
+                "openai": ProviderConfig(
+                    models=ProviderModels(fast="gpt-fast", deep="gpt-deep")
+                ),
+            },
+        ),
+        env=EnvSettings(openai_api_key="openai-key", openrouter_api_key=""),
+    )
+
+    provider = get_provider(config)
+
+    assert [(item.name, item.model) for item in provider.providers] == [
+        ("openai", "gpt-fast")
+    ]
 
 
 def test_registry_builds_available_providers_in_fallback_order(tmp_vault):

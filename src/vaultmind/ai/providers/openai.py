@@ -36,15 +36,26 @@ def is_retryable_openai_failure(exc: BaseException) -> bool:
     return isinstance(exc, Exception) and classify_openai_failure(exc) in TRANSIENT_FAILURES
 
 
-class OpenAIProvider:
-    """OpenAI GPT provider using the official SDK."""
+class OpenAICompatibleProvider:
+    """Shared completion behavior for the supported OpenAI-compatible APIs."""
 
-    name = "openai"
+    name: str
 
-    def __init__(self, api_key: str, model: str, max_tokens: int = 2000) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        max_tokens: int = 2000,
+        *,
+        base_url: str | None = None,
+    ) -> None:
         self.model = model
         self.max_tokens = max_tokens
-        self._client = AsyncOpenAI(api_key=api_key, max_retries=0)
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            max_retries=0,
+        )
 
     classify_failure = staticmethod(classify_openai_failure)
 
@@ -59,8 +70,8 @@ class OpenAIProvider:
         reraise=True,
     )
     async def complete(self, prompt: str, system: str = "") -> str:
-        """Send a prompt to OpenAI and return the completion text."""
-        log.info("openai_request", provider=self.name, model=self.model)
+        """Send a prompt through an OpenAI-compatible chat completion API."""
+        log.info(f"{self.name}_request", provider=self.name, model=self.model)
 
         response = await self._client.chat.completions.create(
             model=self.model,
@@ -73,9 +84,18 @@ class OpenAIProvider:
 
         text = response.choices[0].message.content or ""
         log.info(
-            "openai_response",
+            f"{self.name}_response",
             provider=self.name,
             model=self.model,
             total_tokens=response.usage.total_tokens if response.usage else 0,
         )
         return text
+
+
+class OpenAIProvider(OpenAICompatibleProvider):
+    """OpenAI GPT provider using the official SDK and endpoint."""
+
+    name = "openai"
+
+    def __init__(self, api_key: str, model: str, max_tokens: int = 2000) -> None:
+        super().__init__(api_key=api_key, model=model, max_tokens=max_tokens)
