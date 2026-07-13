@@ -350,6 +350,18 @@ not include prompts, API keys, or response bodies.
 3. Surface deterministic `vm lint` findings in compile and Ask workflows, and evaluate opt-in autofix.
 4. Improve citation verification while preserving readable, contract-compliant concept and query pages.
 
+## Measured Quality Gate
+
+The core quality claim is checked by a deterministic, offline 20-source evaluation. It exercises production Compile, manifest reconciliation, index rebuilding, Ask filing and reuse, and Lint with prompt-matched replay responses. CI fails on regressions in current compiled coverage, concept/graph coherence, reciprocal provenance, lint health, query support/reuse, or unchanged incremental stability.
+
+Run it locally with:
+
+```bash
+uv run python scripts/evaluate_fixture.py --output evaluation-report.json --check
+```
+
+See [Offline Evaluation](docs/EVALUATION.md) for metric definitions, fixture maintenance, threshold governance, and live/offline boundaries.
+
 ## Success Criteria
 
 VaultMind is working when:

@@ -40,6 +40,8 @@ from vaultmind.utils.display import print_error, print_info, print_success, prin
 from vaultmind.utils.hashing import content_hash
 from vaultmind.utils.logging import setup_logging
 
+__all__ = ["reconcile_manifest"]
+
 log = structlog.get_logger()
 
 

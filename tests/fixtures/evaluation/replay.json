@@ -1,0 +1,242 @@
+{
+  "rules": [
+    {
+      "id": "compile-triage-initial",
+      "match": {
+        "prompt_contains": [
+          "Given the following RAW source documents",
+          "Source: https://evaluation.example/sources/01"
+        ],
+        "system_contains": [
+          "precise librarian"
+        ]
+      },
+      "responses": [
+        "{\"concepts\": [{\"name\": \"Retrieval Grounding\", \"status\": \"new\", \"description\": \"Retrieval uses compiled pages first and falls back to Raw only when durable wiki evidence is insufficient.\", \"source_urls\": [\"https://evaluation.example/sources/01\", \"https://evaluation.example/sources/02\", \"https://evaluation.example/sources/03\", \"https://evaluation.example/sources/04\"], \"merge_target\": null}, {\"name\": \"Citation Provenance\", \"status\": \"new\", \"description\": \"Reciprocal provenance makes every concept citation traceable through article and source manifest records.\", \"source_urls\": [\"https://evaluation.example/sources/06\", \"https://evaluation.example/sources/07\", \"https://evaluation.example/sources/08\", \"https://evaluation.example/sources/09\"], \"merge_target\": null}, {\"name\": \"Knowledge Graphs\", \"status\": \"new\", \"description\": \"Normalized wikilinks turn related concepts into a navigable graph whose expected relationships can be measured.\", \"source_urls\": [\"https://evaluation.example/sources/11\", \"https://evaluation.example/sources/12\", \"https://evaluation.example/sources/13\", \"https://evaluation.example/sources/14\"], \"merge_target\": null}, {\"name\": \"Incremental Compilation\", \"status\": \"new\", \"description\": \"Content hashes let unchanged Raw material produce a zero-call, zero-write incremental compilation.\", \"source_urls\": [\"https://evaluation.example/sources/16\", \"https://evaluation.example/sources/17\", \"https://evaluation.example/sources/18\", \"https://evaluation.example/sources/19\"], \"merge_target\": null}]}"
+      ]
+    },
+    {
+      "id": "compile-dedup-initial",
+      "match": {
+        "prompt_contains": [
+          "Concepts to deduplicate:",
+          "https://evaluation.example/sources/01"
+        ],
+        "system_contains": [
+          "precise librarian"
+        ]
+      },
+      "responses": [
+        "{\"concepts\": [{\"name\": \"Retrieval Grounding\", \"status\": \"new\", \"description\": \"Retrieval uses compiled pages first and falls back to Raw only when durable wiki evidence is insufficient.\", \"source_urls\": [\"https://evaluation.example/sources/01\", \"https://evaluation.example/sources/02\", \"https://evaluation.example/sources/03\", \"https://evaluation.example/sources/04\"], \"merge_target\": null}, {\"name\": \"Citation Provenance\", \"status\": \"new\", \"description\": \"Reciprocal provenance makes every concept citation traceable through article and source manifest records.\", \"source_urls\": [\"https://evaluation.example/sources/06\", \"https://evaluation.example/sources/07\", \"https://evaluation.example/sources/08\", \"https://evaluation.example/sources/09\"], \"merge_target\": null}, {\"name\": \"Knowledge Graphs\", \"status\": \"new\", \"description\": \"Normalized wikilinks turn related concepts into a navigable graph whose expected relationships can be measured.\", \"source_urls\": [\"https://evaluation.example/sources/11\", \"https://evaluation.example/sources/12\", \"https://evaluation.example/sources/13\", \"https://evaluation.example/sources/14\"], \"merge_target\": null}, {\"name\": \"Incremental Compilation\", \"status\": \"new\", \"description\": \"Content hashes let unchanged Raw material produce a zero-call, zero-write incremental compilation.\", \"source_urls\": [\"https://evaluation.example/sources/16\", \"https://evaluation.example/sources/17\", \"https://evaluation.example/sources/18\", \"https://evaluation.example/sources/19\"], \"merge_target\": null}]}"
+      ]
+    },
+    {
+      "id": "compile-triage-update",
+      "match": {
+        "prompt_contains": [
+          "Given the following RAW source documents",
+          "Source: https://evaluation.example/sources/20"
+        ],
+        "system_contains": [
+          "precise librarian"
+        ]
+      },
+      "responses": [
+        "{\"concepts\": [{\"name\": \"Retrieval Grounding\", \"status\": \"existing:retrieval-grounding\", \"description\": \"Retrieval uses compiled pages first and falls back to Raw only when durable wiki evidence is insufficient.\", \"source_urls\": [\"https://evaluation.example/sources/05\"], \"merge_target\": \"retrieval-grounding\"}, {\"name\": \"Citation Provenance\", \"status\": \"existing:citation-provenance\", \"description\": \"Reciprocal provenance makes every concept citation traceable through article and source manifest records.\", \"source_urls\": [\"https://evaluation.example/sources/10\"], \"merge_target\": \"citation-provenance\"}, {\"name\": \"Knowledge Graphs\", \"status\": \"existing:knowledge-graphs\", \"description\": \"Normalized wikilinks turn related concepts into a navigable graph whose expected relationships can be measured.\", \"source_urls\": [\"https://evaluation.example/sources/15\"], \"merge_target\": \"knowledge-graphs\"}, {\"name\": \"Incremental Compilation\", \"status\": \"existing:incremental-compilation\", \"description\": \"Content hashes let unchanged Raw material produce a zero-call, zero-write incremental compilation.\", \"source_urls\": [\"https://evaluation.example/sources/20\"], \"merge_target\": \"incremental-compilation\"}]}"
+      ]
+    },
+    {
+      "id": "compile-dedup-update",
+      "match": {
+        "prompt_contains": [
+          "Concepts to deduplicate:",
+          "https://evaluation.example/sources/20"
+        ],
+        "system_contains": [
+          "precise librarian"
+        ]
+      },
+      "responses": [
+        "{\"concepts\": [{\"name\": \"Retrieval Grounding\", \"status\": \"existing:retrieval-grounding\", \"description\": \"Retrieval uses compiled pages first and falls back to Raw only when durable wiki evidence is insufficient.\", \"source_urls\": [\"https://evaluation.example/sources/05\"], \"merge_target\": \"retrieval-grounding\"}, {\"name\": \"Citation Provenance\", \"status\": \"existing:citation-provenance\", \"description\": \"Reciprocal provenance makes every concept citation traceable through article and source manifest records.\", \"source_urls\": [\"https://evaluation.example/sources/10\"], \"merge_target\": \"citation-provenance\"}, {\"name\": \"Knowledge Graphs\", \"status\": \"existing:knowledge-graphs\", \"description\": \"Normalized wikilinks turn related concepts into a navigable graph whose expected relationships can be measured.\", \"source_urls\": [\"https://evaluation.example/sources/15\"], \"merge_target\": \"knowledge-graphs\"}, {\"name\": \"Incremental Compilation\", \"status\": \"existing:incremental-compilation\", \"description\": \"Content hashes let unchanged Raw material produce a zero-call, zero-write incremental compilation.\", \"source_urls\": [\"https://evaluation.example/sources/20\"], \"merge_target\": \"incremental-compilation\"}]}"
+      ]
+    },
+    {
+      "id": "article-create-retrieval-grounding",
+      "match": {
+        "prompt_contains": [
+          "concept \"Retrieval Grounding\"",
+          "Write a new, source-grounded wiki article"
+        ],
+        "system_contains": [
+          "research wiki author"
+        ]
+      },
+      "responses": [
+        "# Retrieval Grounding\n\n## Overview\n\nRetrieval uses compiled pages first and falls back to Raw only when durable wiki evidence is insufficient.\n\n## Key Ideas\n\nThe representative studies overlap and reinforce one durable concept instead of producing one page per source. The persisted result remains grounded in explicit source citations.\n\n## Connections\n\n- Related to [[citation-provenance]].\n- Related to [[incremental-compilation]].\n\n## Open Questions\n\n- How should maintainers govern quality thresholds as the fixture evolves?\n\n## Sources\n\n- https://evaluation.example/sources/01\n- https://evaluation.example/sources/02\n- https://evaluation.example/sources/03\n- https://evaluation.example/sources/04\n"
+      ]
+    },
+    {
+      "id": "article-update-retrieval-grounding",
+      "match": {
+        "prompt_contains": [
+          "You are maintaining a research wiki",
+          "title: Retrieval Grounding"
+        ],
+        "system_contains": [
+          "research wiki author"
+        ]
+      },
+      "responses": [
+        "# Retrieval Grounding\n\n## Overview\n\nRetrieval uses compiled pages first and falls back to Raw only when durable wiki evidence is insufficient.\n\n## Key Ideas\n\nThe representative studies overlap and reinforce one durable concept instead of producing one page per source. The persisted result remains grounded in explicit source citations.\n\n## Connections\n\n- Related to [[citation-provenance]].\n- Related to [[incremental-compilation]].\n\n## Open Questions\n\n- How should maintainers govern quality thresholds as the fixture evolves?\n\n## Sources\n\n- https://evaluation.example/sources/01\n- https://evaluation.example/sources/02\n- https://evaluation.example/sources/03\n- https://evaluation.example/sources/04\n- https://evaluation.example/sources/05\n"
+      ]
+    },
+    {
+      "id": "article-create-citation-provenance",
+      "match": {
+        "prompt_contains": [
+          "concept \"Citation Provenance\"",
+          "Write a new, source-grounded wiki article"
+        ],
+        "system_contains": [
+          "research wiki author"
+        ]
+      },
+      "responses": [
+        "# Citation Provenance\n\n## Overview\n\nReciprocal provenance makes every concept citation traceable through article and source manifest records.\n\n## Key Ideas\n\nThe representative studies overlap and reinforce one durable concept instead of producing one page per source. The persisted result remains grounded in explicit source citations.\n\n## Connections\n\n- Related to [[retrieval-grounding]].\n- Related to [[knowledge-graphs]].\n\n## Open Questions\n\n- How should maintainers govern quality thresholds as the fixture evolves?\n\n## Sources\n\n- https://evaluation.example/sources/06\n- https://evaluation.example/sources/07\n- https://evaluation.example/sources/08\n- https://evaluation.example/sources/09\n"
+      ]
+    },
+    {
+      "id": "article-update-citation-provenance",
+      "match": {
+        "prompt_contains": [
+          "You are maintaining a research wiki",
+          "title: Citation Provenance"
+        ],
+        "system_contains": [
+          "research wiki author"
+        ]
+      },
+      "responses": [
+        "# Citation Provenance\n\n## Overview\n\nReciprocal provenance makes every concept citation traceable through article and source manifest records.\n\n## Key Ideas\n\nThe representative studies overlap and reinforce one durable concept instead of producing one page per source. The persisted result remains grounded in explicit source citations.\n\n## Connections\n\n- Related to [[retrieval-grounding]].\n- Related to [[knowledge-graphs]].\n\n## Open Questions\n\n- How should maintainers govern quality thresholds as the fixture evolves?\n\n## Sources\n\n- https://evaluation.example/sources/06\n- https://evaluation.example/sources/07\n- https://evaluation.example/sources/08\n- https://evaluation.example/sources/09\n- https://evaluation.example/sources/10\n"
+      ]
+    },
+    {
+      "id": "article-create-knowledge-graphs",
+      "match": {
+        "prompt_contains": [
+          "concept \"Knowledge Graphs\"",
+          "Write a new, source-grounded wiki article"
+        ],
+        "system_contains": [
+          "research wiki author"
+        ]
+      },
+      "responses": [
+        "# Knowledge Graphs\n\n## Overview\n\nNormalized wikilinks turn related concepts into a navigable graph whose expected relationships can be measured.\n\n## Key Ideas\n\nThe representative studies overlap and reinforce one durable concept instead of producing one page per source. The persisted result remains grounded in explicit source citations.\n\n## Connections\n\n- Related to [[citation-provenance]].\n- Related to [[incremental-compilation]].\n\n## Open Questions\n\n- How should maintainers govern quality thresholds as the fixture evolves?\n\n## Sources\n\n- https://evaluation.example/sources/11\n- https://evaluation.example/sources/12\n- https://evaluation.example/sources/13\n- https://evaluation.example/sources/14\n"
+      ]
+    },
+    {
+      "id": "article-update-knowledge-graphs",
+      "match": {
+        "prompt_contains": [
+          "You are maintaining a research wiki",
+          "title: Knowledge Graphs"
+        ],
+        "system_contains": [
+          "research wiki author"
+        ]
+      },
+      "responses": [
+        "# Knowledge Graphs\n\n## Overview\n\nNormalized wikilinks turn related concepts into a navigable graph whose expected relationships can be measured.\n\n## Key Ideas\n\nThe representative studies overlap and reinforce one durable concept instead of producing one page per source. The persisted result remains grounded in explicit source citations.\n\n## Connections\n\n- Related to [[citation-provenance]].\n- Related to [[incremental-compilation]].\n\n## Open Questions\n\n- How should maintainers govern quality thresholds as the fixture evolves?\n\n## Sources\n\n- https://evaluation.example/sources/11\n- https://evaluation.example/sources/12\n- https://evaluation.example/sources/13\n- https://evaluation.example/sources/14\n- https://evaluation.example/sources/15\n"
+      ]
+    },
+    {
+      "id": "article-create-incremental-compilation",
+      "match": {
+        "prompt_contains": [
+          "concept \"Incremental Compilation\"",
+          "Write a new, source-grounded wiki article"
+        ],
+        "system_contains": [
+          "research wiki author"
+        ]
+      },
+      "responses": [
+        "# Incremental Compilation\n\n## Overview\n\nContent hashes let unchanged Raw material produce a zero-call, zero-write incremental compilation.\n\n## Key Ideas\n\nThe representative studies overlap and reinforce one durable concept instead of producing one page per source. The persisted result remains grounded in explicit source citations.\n\n## Connections\n\n- Related to [[retrieval-grounding]].\n- Related to [[knowledge-graphs]].\n\n## Open Questions\n\n- How should maintainers govern quality thresholds as the fixture evolves?\n\n## Sources\n\n- https://evaluation.example/sources/16\n- https://evaluation.example/sources/17\n- https://evaluation.example/sources/18\n- https://evaluation.example/sources/19\n"
+      ]
+    },
+    {
+      "id": "article-update-incremental-compilation",
+      "match": {
+        "prompt_contains": [
+          "You are maintaining a research wiki",
+          "title: Incremental Compilation"
+        ],
+        "system_contains": [
+          "research wiki author"
+        ]
+      },
+      "responses": [
+        "# Incremental Compilation\n\n## Overview\n\nContent hashes let unchanged Raw material produce a zero-call, zero-write incremental compilation.\n\n## Key Ideas\n\nThe representative studies overlap and reinforce one durable concept instead of producing one page per source. The persisted result remains grounded in explicit source citations.\n\n## Connections\n\n- Related to [[retrieval-grounding]].\n- Related to [[knowledge-graphs]].\n\n## Open Questions\n\n- How should maintainers govern quality thresholds as the fixture evolves?\n\n## Sources\n\n- https://evaluation.example/sources/16\n- https://evaluation.example/sources/17\n- https://evaluation.example/sources/18\n- https://evaluation.example/sources/19\n- https://evaluation.example/sources/20\n"
+      ]
+    },
+    {
+      "id": "index-rebuild",
+      "match": {
+        "prompt_contains": [
+          "Current wiki articles:",
+          "[[retrieval-grounding|Retrieval Grounding]]"
+        ],
+        "system_contains": [
+          "wiki index maintainer"
+        ]
+      },
+      "responses": [
+        "# Wiki Index\n\n- [[citation-provenance|Citation Provenance]] \u2014 reciprocal source traceability.\n- [[incremental-compilation|Incremental Compilation]] \u2014 stable hash-based updates.\n- [[knowledge-graphs|Knowledge Graphs]] \u2014 connected concept structure.\n- [[retrieval-grounding|Retrieval Grounding]] \u2014 wiki-first grounded retrieval.\n",
+        "# Wiki Index\n\n- [[citation-provenance|Citation Provenance]] \u2014 reciprocal source traceability.\n- [[incremental-compilation|Incremental Compilation]] \u2014 stable hash-based updates.\n- [[knowledge-graphs|Knowledge Graphs]] \u2014 connected concept structure.\n- [[retrieval-grounding|Retrieval Grounding]] \u2014 wiki-first grounded retrieval.\n"
+      ]
+    },
+    {
+      "id": "ask-1",
+      "match": {
+        "prompt_contains": [
+          "Question: Retrieval Grounding\n\nAccumulated context:"
+        ],
+        "system_contains": [
+          "iterative query synthesis engine"
+        ]
+      },
+      "responses": [
+        "{\"answer\": \"Compiled concept pages provide durable evidence before Raw fallback, with citations preserving traceability.\"}"
+      ]
+    },
+    {
+      "id": "ask-2",
+      "match": {
+        "prompt_contains": [
+          "Question: Retrieval Grounding Foundation\n\nAccumulated context:"
+        ],
+        "system_contains": [
+          "iterative query synthesis engine"
+        ]
+      },
+      "responses": [
+        "{\"answer\": \"The compiled retrieval concept and the previously filed answer reinforce a reusable wiki-first foundation.\"}"
+      ]
+    },
+    {
+      "id": "ask-3",
+      "match": {
+        "prompt_contains": [
+          "Question: Calibration ledger practice\n\nAccumulated context:"
+        ],
+        "system_contains": [
+          "iterative query synthesis engine"
+        ]
+      },
+      "responses": [
+        "{\"answer\": \"The Raw studies describe a calibration ledger as a way to record unresolved evidence for direct inspection.\"}"
+      ]
+    }
+  ]
+}

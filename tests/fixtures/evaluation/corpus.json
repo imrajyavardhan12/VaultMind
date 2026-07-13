@@ -1,0 +1,329 @@
+{
+  "name": "representative-20-source-wiki",
+  "sources": [
+    {
+      "id": "source-01",
+      "title": "Retrieval Grounding Study 1",
+      "source_url": "https://evaluation.example/sources/01",
+      "tags": [
+        "retrieval-grounding",
+        "citation-provenance"
+      ],
+      "body": "Study 1 explains that retrieval grounding selects durable wiki evidence before Raw fallback. It also connects retrieval grounding with citation provenance, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-02",
+      "title": "Retrieval Grounding Study 2",
+      "source_url": "https://evaluation.example/sources/02",
+      "tags": [
+        "retrieval-grounding",
+        "citation-provenance"
+      ],
+      "body": "Study 2 explains that retrieval grounding selects durable wiki evidence before Raw fallback. It also connects retrieval grounding with citation provenance, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-03",
+      "title": "Retrieval Grounding Study 3",
+      "source_url": "https://evaluation.example/sources/03",
+      "tags": [
+        "retrieval-grounding",
+        "citation-provenance"
+      ],
+      "body": "Study 3 explains that retrieval grounding selects durable wiki evidence before Raw fallback. It also connects retrieval grounding with citation provenance, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-04",
+      "title": "Retrieval Grounding Study 4",
+      "source_url": "https://evaluation.example/sources/04",
+      "tags": [
+        "retrieval-grounding",
+        "citation-provenance"
+      ],
+      "body": "Study 4 explains that retrieval grounding selects durable wiki evidence before Raw fallback. It also connects retrieval grounding with citation provenance, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-05",
+      "title": "Retrieval Grounding Study 5",
+      "source_url": "https://evaluation.example/sources/05",
+      "tags": [
+        "retrieval-grounding",
+        "citation-provenance"
+      ],
+      "body": "Study 5 explains that retrieval grounding selects durable wiki evidence before Raw fallback. It also connects retrieval grounding with citation provenance, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 2
+    },
+    {
+      "id": "source-06",
+      "title": "Citation Provenance Study 1",
+      "source_url": "https://evaluation.example/sources/06",
+      "tags": [
+        "citation-provenance",
+        "knowledge-graphs"
+      ],
+      "body": "Study 1 explains that citation provenance keeps source and article references reciprocal. It also connects citation provenance with knowledge graphs, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-07",
+      "title": "Citation Provenance Study 2",
+      "source_url": "https://evaluation.example/sources/07",
+      "tags": [
+        "citation-provenance",
+        "knowledge-graphs"
+      ],
+      "body": "Study 2 explains that citation provenance keeps source and article references reciprocal. It also connects citation provenance with knowledge graphs, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-08",
+      "title": "Citation Provenance Study 3",
+      "source_url": "https://evaluation.example/sources/08",
+      "tags": [
+        "citation-provenance",
+        "knowledge-graphs"
+      ],
+      "body": "Study 3 explains that citation provenance keeps source and article references reciprocal. It also connects citation provenance with knowledge graphs, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-09",
+      "title": "Citation Provenance Study 4",
+      "source_url": "https://evaluation.example/sources/09",
+      "tags": [
+        "citation-provenance",
+        "knowledge-graphs"
+      ],
+      "body": "Study 4 explains that citation provenance keeps source and article references reciprocal. It also connects citation provenance with knowledge graphs, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-10",
+      "title": "Citation Provenance Study 5",
+      "source_url": "https://evaluation.example/sources/10",
+      "tags": [
+        "citation-provenance",
+        "knowledge-graphs"
+      ],
+      "body": "Study 5 explains that citation provenance keeps source and article references reciprocal. It also connects citation provenance with knowledge graphs, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 2
+    },
+    {
+      "id": "source-11",
+      "title": "Knowledge Graphs Study 1",
+      "source_url": "https://evaluation.example/sources/11",
+      "tags": [
+        "knowledge-graphs",
+        "incremental-compilation"
+      ],
+      "body": "Study 1 explains that knowledge graphs connect concepts through normalized wiki edges. It also connects knowledge graphs with incremental compilation, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-12",
+      "title": "Knowledge Graphs Study 2",
+      "source_url": "https://evaluation.example/sources/12",
+      "tags": [
+        "knowledge-graphs",
+        "incremental-compilation"
+      ],
+      "body": "Study 2 explains that knowledge graphs connect concepts through normalized wiki edges. It also connects knowledge graphs with incremental compilation, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-13",
+      "title": "Knowledge Graphs Study 3",
+      "source_url": "https://evaluation.example/sources/13",
+      "tags": [
+        "knowledge-graphs",
+        "incremental-compilation"
+      ],
+      "body": "Study 3 explains that knowledge graphs connect concepts through normalized wiki edges. It also connects knowledge graphs with incremental compilation, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-14",
+      "title": "Knowledge Graphs Study 4",
+      "source_url": "https://evaluation.example/sources/14",
+      "tags": [
+        "knowledge-graphs",
+        "incremental-compilation"
+      ],
+      "body": "Study 4 explains that knowledge graphs connect concepts through normalized wiki edges. It also connects knowledge graphs with incremental compilation, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-15",
+      "title": "Knowledge Graphs Study 5",
+      "source_url": "https://evaluation.example/sources/15",
+      "tags": [
+        "knowledge-graphs",
+        "incremental-compilation"
+      ],
+      "body": "Study 5 explains that knowledge graphs connect concepts through normalized wiki edges. It also connects knowledge graphs with incremental compilation, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 2
+    },
+    {
+      "id": "source-16",
+      "title": "Incremental Compilation Study 1",
+      "source_url": "https://evaluation.example/sources/16",
+      "tags": [
+        "incremental-compilation",
+        "retrieval-grounding"
+      ],
+      "body": "Study 1 explains that incremental compilation hashes Raw state and avoids unchanged writes. It also connects incremental compilation with retrieval grounding, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-17",
+      "title": "Incremental Compilation Study 2",
+      "source_url": "https://evaluation.example/sources/17",
+      "tags": [
+        "incremental-compilation",
+        "retrieval-grounding"
+      ],
+      "body": "Study 2 explains that incremental compilation hashes Raw state and avoids unchanged writes. It also connects incremental compilation with retrieval grounding, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-18",
+      "title": "Incremental Compilation Study 3",
+      "source_url": "https://evaluation.example/sources/18",
+      "tags": [
+        "incremental-compilation",
+        "retrieval-grounding"
+      ],
+      "body": "Study 3 explains that incremental compilation hashes Raw state and avoids unchanged writes. It also connects incremental compilation with retrieval grounding, so repeated sources should compound into shared concept pages rather than isolated summaries.",
+      "phase": 1
+    },
+    {
+      "id": "source-19",
+      "title": "Incremental Compilation Study 4",
+      "source_url": "https://evaluation.example/sources/19",
+      "tags": [
+        "incremental-compilation",
+        "retrieval-grounding"
+      ],
+      "body": "Study 4 explains that incremental compilation hashes Raw state and avoids unchanged writes. It also connects incremental compilation with retrieval grounding, so repeated sources should compound into shared concept pages rather than isolated summaries. A calibration ledger practice records unresolved evidence for direct Raw inspection.",
+      "phase": 1
+    },
+    {
+      "id": "source-20",
+      "title": "Incremental Compilation Study 5",
+      "source_url": "https://evaluation.example/sources/20",
+      "tags": [
+        "incremental-compilation",
+        "retrieval-grounding"
+      ],
+      "body": "Study 5 explains that incremental compilation hashes Raw state and avoids unchanged writes. It also connects incremental compilation with retrieval grounding, so repeated sources should compound into shared concept pages rather than isolated summaries. A calibration ledger practice records unresolved evidence for direct Raw inspection.",
+      "phase": 2
+    }
+  ],
+  "expected_concepts": [
+    {
+      "slug": "retrieval-grounding",
+      "title": "Retrieval Grounding",
+      "source_ids": [
+        "source-01",
+        "source-02",
+        "source-03",
+        "source-04",
+        "source-05"
+      ]
+    },
+    {
+      "slug": "citation-provenance",
+      "title": "Citation Provenance",
+      "source_ids": [
+        "source-06",
+        "source-07",
+        "source-08",
+        "source-09",
+        "source-10"
+      ]
+    },
+    {
+      "slug": "knowledge-graphs",
+      "title": "Knowledge Graphs",
+      "source_ids": [
+        "source-11",
+        "source-12",
+        "source-13",
+        "source-14",
+        "source-15"
+      ]
+    },
+    {
+      "slug": "incremental-compilation",
+      "title": "Incremental Compilation",
+      "source_ids": [
+        "source-16",
+        "source-17",
+        "source-18",
+        "source-19",
+        "source-20"
+      ]
+    }
+  ],
+  "expected_edges": [
+    {
+      "source": "retrieval-grounding",
+      "target": "citation-provenance"
+    },
+    {
+      "source": "retrieval-grounding",
+      "target": "incremental-compilation"
+    },
+    {
+      "source": "citation-provenance",
+      "target": "retrieval-grounding"
+    },
+    {
+      "source": "citation-provenance",
+      "target": "knowledge-graphs"
+    },
+    {
+      "source": "knowledge-graphs",
+      "target": "citation-provenance"
+    },
+    {
+      "source": "knowledge-graphs",
+      "target": "incremental-compilation"
+    },
+    {
+      "source": "incremental-compilation",
+      "target": "retrieval-grounding"
+    },
+    {
+      "source": "incremental-compilation",
+      "target": "knowledge-graphs"
+    }
+  ],
+  "queries": [
+    {
+      "question": "Retrieval Grounding",
+      "support": [
+        "concept"
+      ],
+      "reuses_filed_query": false
+    },
+    {
+      "question": "Retrieval Grounding Foundation",
+      "support": [
+        "concept",
+        "filed_query"
+      ],
+      "reuses_filed_query": true
+    },
+    {
+      "question": "Calibration ledger practice",
+      "support": [
+        "raw"
+      ],
+      "reuses_filed_query": false
+    }
+  ]
+}
