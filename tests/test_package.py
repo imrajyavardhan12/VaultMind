@@ -133,13 +133,13 @@ def test_publish_builds_once_verifies_and_retains_exact_distributions() -> None:
     assert "pyproject.toml" in smoke
     assert "/vm version" in smoke
     upload = build_steps["Retain built distributions"]
-    assert upload["uses"] == "actions/upload-artifact@v6"
+    assert upload["uses"] == "actions/upload-artifact@v7"
     assert upload["with"]["name"] == "python-distributions"
     assert upload["with"]["path"] == "dist/"
     assert upload["with"]["if-no-files-found"] == "error"
     assert jobs["publish"]["needs"] == "build"
     download = publish_steps["Download verified distributions"]
-    assert download["uses"] == "actions/download-artifact@v7"
+    assert download["uses"] == "actions/download-artifact@v8"
     assert download["with"]["name"] == upload["with"]["name"]
 
 
