@@ -45,3 +45,18 @@ jobs:
           python -m venv /tmp/vaultmind-wheel-test
           /tmp/vaultmind-wheel-test/bin/pip install dist/*.whl
           test "$(/tmp/vaultmind-wheel-test/bin/vm version)" = "VaultMind v${EXPECTED_VERSION}"
+
+      - name: Offline 20-source evaluation
+        env:
+          ANTHROPIC_API_KEY: ""
+          OPENAI_API_KEY: ""
+        run: uv run python scripts/evaluate_fixture.py --output evaluation-report.json --check
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: evaluation-report
+          path: evaluation-report.json
+          if-no-files-found: error
+          retention-days: 14

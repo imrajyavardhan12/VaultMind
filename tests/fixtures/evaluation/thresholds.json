@@ -1,0 +1,31 @@
+{
+  "name": "committed-offline-baseline-v1",
+  "thresholds": [
+    {"metric": "corpus_source_count", "minimum": 20, "maximum": 20},
+    {"metric": "scanned_source_count", "minimum": 20, "maximum": 20},
+    {"metric": "current_compiled_coverage", "minimum": 1.0},
+    {"metric": "concept_count", "minimum": 4, "maximum": 4},
+    {"metric": "expected_concept_recall", "minimum": 1.0},
+    {"metric": "expected_source_to_concept_attribution_recall", "minimum": 1.0},
+    {"metric": "unexpected_source_to_concept_attribution_count", "maximum": 0},
+    {"metric": "source_to_concept_attribution_precision", "minimum": 1.0},
+    {"metric": "suspicious_duplicate_pair_count", "maximum": 0},
+    {"metric": "citation_provenance_inconsistency_count", "maximum": 0},
+    {"metric": "expected_graph_edge_recall", "minimum": 1.0},
+    {"metric": "duplicate_connection_count", "maximum": 0},
+    {"metric": "index_present", "minimum": 1, "maximum": 1},
+    {"metric": "expected_concept_index_link_recall", "minimum": 1.0},
+    {"metric": "unexpected_index_link_count", "maximum": 0},
+    {"metric": "broken_wikilinks", "maximum": 0},
+    {"metric": "stale_manifest_findings", "maximum": 0},
+    {"metric": "lint_finding_count", "maximum": 0},
+    {"metric": "wiki_supported_query_rate", "minimum": 0.6666666666666666},
+    {"metric": "raw_fallback_count", "maximum": 1},
+    {"metric": "filed_query_reuse_count", "minimum": 1},
+    {"metric": "query_expectation_pass_rate", "minimum": 1.0},
+    {"metric": "incremental_changed_file_count", "maximum": 0},
+    {"metric": "incremental_owned_state_write_count", "maximum": 0},
+    {"metric": "incremental_provider_call_count", "maximum": 0},
+    {"metric": "reconciliation_probe_success_rate", "minimum": 1.0}
+  ]
+}
