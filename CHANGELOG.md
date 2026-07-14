@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 - 2026-07-14
 
 ### Added
 
-- First-class OpenRouter runtime and setup support, including independent credentials, configurable OpenAI-compatible endpoints, model slugs, and ordered fallback diagnostics.
+- First-class OpenRouter support through `vm init` and ordered runtime fallback, with its own `OPENROUTER_API_KEY`, the default or a configurable OpenAI-compatible endpoint, and configurable model slugs.
 
 ## 0.2.0 - 2026-07-12
 

@@ -17,16 +17,16 @@ from vaultmind.main import app
 def test_package_and_runtime_versions_are_consistent() -> None:
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
 
-    assert project["version"] == "0.2.0"
-    assert __version__ == "0.2.0"
-    assert version("vaultmind") == "0.2.0"
+    assert project["version"] == "0.2.1"
+    assert __version__ == "0.2.1"
+    assert version("vaultmind") == "0.2.1"
 
 
 def test_vm_version_reports_release_version() -> None:
     result = CliRunner().invoke(app, ["version"])
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == "VaultMind v0.2.0"
+    assert result.stdout.strip() == "VaultMind v0.2.1"
 
 
 def _workflow(path: str) -> dict[str, Any]:
@@ -79,7 +79,7 @@ def test_ci_preserves_quality_build_and_dynamic_wheel_smoke() -> None:
     assert "pyproject.toml" in smoke
     assert "tomllib" in smoke
     assert "EXPECTED_VERSION" in smoke
-    assert "VaultMind v0.2.0" not in smoke
+    assert "VaultMind v0.2.1" not in smoke
 
 
 def test_publish_workflow_has_release_and_required_manual_triggers() -> None:
