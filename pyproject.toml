@@ -1,6 +1,6 @@
 [project]
 name = "vaultmind"
-version = "0.2.0"
+version = "0.2.1"
 description = "Clip anything into Obsidian. Run vm compile. Ask your living wiki."
 readme = "README.md"
 requires-python = ">=3.11"

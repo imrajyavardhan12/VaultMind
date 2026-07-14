@@ -284,16 +284,16 @@ See `vm <command> --help` for all flags.
 
 ## Installation
 
-The current source and GitHub release version is 0.2.0. Check that PyPI lists it,
+The current source and GitHub release version is 0.2.1. Check that PyPI lists it,
 then install and verify the isolated CLI:
 
 ```bash
 python -m pip index versions vaultmind
-pipx install vaultmind==0.2.0
-vm version  # VaultMind v0.2.0
+pipx install vaultmind==0.2.1
+vm version  # VaultMind v0.2.1
 ```
 
-If PyPI does not list 0.2.0 yet, follow the authorized manual publication procedure
+If PyPI does not list 0.2.1 yet, follow the authorized manual publication procedure
 rather than installing from an unverified artifact. Or run from this repository:
 
 ```bash
@@ -316,7 +316,7 @@ setup, protected-environment approval, release verification, and recovery guidan
 
 The config stores vault paths, folder names, and AI provider preferences. The `.env` stores API keys.
 
-### Runtime provider fallback (v0.2.0)
+### Runtime provider fallback (v0.2.1)
 
 VaultMind supports Anthropic, OpenAI, OpenRouter, and local Ollama at runtime.
 Every completion follows `ai.fallback_chain` in order. VaultMind constructs all
