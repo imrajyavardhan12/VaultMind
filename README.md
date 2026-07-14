@@ -8,6 +8,21 @@ It is inspired by Andrej Karpathy's LLM Wiki pattern:
 
 https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
 
+## Quick Start
+
+VaultMind is a CLI application. Install it in an isolated tool environment rather
+than into macOS/Homebrew's system Python:
+
+```bash
+brew install uv                       # Skip if uv is already installed
+uv tool install vaultmind==0.2.1
+uv tool update-shell                  # Restart the terminal if vm is not found
+vm version                            # VaultMind v0.2.1
+vm init
+```
+
+Do not use `pip install --break-system-packages`.
+
 ## Product Thesis
 
 VaultMind is not a web clipper, bookmark manager, or generic RAG chatbot.
@@ -284,21 +299,34 @@ See `vm <command> --help` for all flags.
 
 ## Installation
 
-The current source and GitHub release version is 0.2.1. Check that PyPI lists it,
-then install and verify the isolated CLI:
+The current PyPI and GitHub release is 0.2.1. Because VaultMind is a CLI
+application, install it with an isolated tool manager. The recommended method is
+[uv](https://docs.astral.sh/uv/):
 
 ```bash
-python -m pip index versions vaultmind
-pipx install vaultmind==0.2.1
-vm version  # VaultMind v0.2.1
+brew install uv                       # Skip if uv is already installed
+uv tool install vaultmind==0.2.1
+uv tool update-shell                  # Then restart the terminal if needed
+vm version                            # VaultMind v0.2.1
 ```
 
-If PyPI does not list 0.2.1 yet, follow the authorized manual publication procedure
-rather than installing from an unverified artifact. Or run from this repository:
+Alternatively, use pipx:
 
 ```bash
-uv sync
-uv run vm init
+brew install pipx
+pipx ensurepath                       # Then restart the terminal if needed
+pipx install vaultmind==0.2.1
+vm version                            # VaultMind v0.2.1
+```
+
+A plain `pip install vaultmind` can be rejected by Homebrew-managed Python with
+an `externally-managed-environment` error (PEP 668). Do not bypass that protection
+with `--break-system-packages`; use uv or pipx instead.
+
+To run from a source checkout for development:
+
+```bash
+uv sync --locked --group dev
 uv run vm version
 ```
 
