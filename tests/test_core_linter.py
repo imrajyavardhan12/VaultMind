@@ -116,6 +116,43 @@ More text [[another-valid]].
     assert set(links) == {"valid", "another-valid"}
 
 
+def test_extract_wikilinks_uses_commonmark_tilde_and_length_aware_fences():
+    text = """[[before]]
+~~~markdown
+[[inside-tilde]]
+```
+[[still-inside-tilde]]
+~~~
+[[between]]
+`````
+[[inside-long-backtick]]
+```
+[[after-short-interior-run]]
+`````
+[[after]]
+"""
+
+    assert extract_wikilinks(text) == ["before", "between", "after"]
+    assert check_broken_wikilinks(
+        [WikiPage(relative_path="concept", text=text, is_index=False)],
+        {"before", "between", "after"},
+    ) == []
+
+
+def test_extract_wikilinks_requires_valid_matching_closing_fence():
+    text = """~~~~
+[[inside]]
+~~~
+[[after-short-tilde-run]]
+````
+[[after-mismatched-marker]]
+~~~~
+[[outside]]
+"""
+
+    assert extract_wikilinks(text) == ["outside"]
+
+
 def test_extract_wikilinks_case_normalization():
     """Test that links are lowercased."""
     text = "[[FOO]] and [[Bar]]"

@@ -65,6 +65,9 @@ Description: {description}
 Attributed citations and bounded Raw source packets:
 {source_context}
 
+Approved existing concept slugs (bounded to pages present before this compile):
+{approved_existing_concepts}
+
 Contract and rules:
 - Base factual content only on the supplied Raw packets; mark uncertainty when a cited source is unavailable
 - Be 400-800 words
@@ -72,7 +75,8 @@ Contract and rules:
 - Include every section exactly as an H2: Overview, Key Ideas, Connections, Open Questions, Sources
 - List every attributed source citation once as a bullet under Sources, including unresolved source keys
 - Be written in an encyclopedic but accessible tone
-- Use Obsidian wikilinks for related concepts where appropriate (e.g. [[attention-mechanisms]])
+- Only use wikilinks whose target canonically matches a slug in the approved existing concept list above; preserve aliases, paths, headings, or block references only for those approved targets
+- If no concept slugs are approved, do not use any Obsidian wikilinks
 - Do NOT repeat exact quotes from sources — synthesize in your own words
 
 Write the article in full markdown. No frontmatter. No code blocks unless showing code.
@@ -89,6 +93,9 @@ Existing article (possibly truncated by the caller):
 Attributed citations and new Raw source packets:
 {new_sources}
 
+Approved existing concept slugs (bounded to pages present before this compile):
+{approved_existing_concepts}
+
 Contract and rules:
 - Base new factual content only on the supplied Raw packets; mark uncertainty when a cited source is unavailable
 - Preserve useful existing content while incorporating all relevant new information
@@ -96,7 +103,8 @@ Contract and rules:
 - Include every section exactly as an H2: Overview, Key Ideas, Connections, Open Questions, Sources
 - List every attributed source citation once as a bullet under Sources, including unresolved source keys
 - Maintain consistent structure and tone with the existing article
-- Add Obsidian wikilinks to related concepts where appropriate (e.g. [[attention-mechanisms]])
+- Only use wikilinks whose target canonically matches a slug in the approved existing concept list above; preserve aliases, paths, headings, or block references only for those approved targets
+- If no concept slugs are approved, do not use any Obsidian wikilinks
 - Be 400-800 words unless the new sources substantially expand the topic
 - Do NOT repeat exact quotes — synthesize in your own words
 
