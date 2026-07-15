@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.2.3 - 2026-07-15
 
 ### Fixed
 
-- Generated concept articles now preserve only wikilinks to approved concept pages that existed on disk before compilation, degrading invented targets to readable text before atomic create or update writes.
+- Generated concept-article create and update titles and bodies now preserve only wikilinks to approved concept pages that existed on disk before compilation, degrading invented links to readable text before atomic writes.
+- Canonical Lint wikilink extraction now follows the same CommonMark backtick and tilde fence rules as generated-article validation.
 
 ## 0.2.2 - 2026-07-15
 
