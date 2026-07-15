@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import structlog
 import typer
 
 from vaultmind.ai.providers.base import FailureKind, ProviderAttempt, ProviderExhaustedError
@@ -39,6 +40,49 @@ def _raw_source(
         body=f"# {slug}\n\nBody text",
         content_hash=f"hash-{slug}",
         raw_tags=[],
+    )
+
+
+def _seed_durable_compile_state(test_config, source, slugs=("concept-a", "concept-b")):
+    concepts_dir = (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / test_config.folders.wiki_concepts
+    )
+    concepts_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(UTC)
+    wiki_articles = {}
+    for slug in slugs:
+        sources = f"sources:\n  - {source.source_url}\n" if source is not None else ""
+        article = concepts_dir / f"{slug}.md"
+        article.write_text(
+            f"---\ntitle: {slug.replace('-', ' ').title()}\n{sources}---\n\n# {slug}\n",
+            encoding="utf-8",
+        )
+        wiki_articles[slug] = ManifestWikiEntry(
+            last_updated=now,
+            source_urls=[source.source_url] if source is not None else [],
+            content_hash=content_hash(article.read_text(encoding="utf-8")),
+        )
+
+    sources = {}
+    if source is not None:
+        sources[source.source_url] = ManifestSource(
+            content_hash=source.content_hash,
+            saved_at=now,
+            compiled_at=now,
+            wiki_articles=list(slugs),
+        )
+    manifest = Manifest(sources=sources, wiki_articles=wiki_articles)
+    write_manifest(test_config.vault_path, manifest)
+    return manifest
+
+
+def _index_path(test_config):
+    return (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / f"{test_config.folders.wiki_index}.md"
     )
 
 
@@ -131,6 +175,9 @@ def test_compile_repair_only_persists_without_provider_for_hash_repairs(
         f"---\nsources:\n  - {source.source_url}\n---\n\n# Concept A\n",
         encoding="utf-8",
     )
+    index_path = _index_path(test_config)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text("# Wiki Index\n\n- [[concept-a]]\n", encoding="utf-8")
     now = datetime.now(UTC)
     write_manifest(
         test_config.vault_path,
@@ -1059,6 +1106,299 @@ def test_compile_verbose_preserves_provider_exception_chain(monkeypatch):
         compile_cmd.compile(full=False, dry_run=False, verbose=True, max_touches=5)
 
     assert exc_info.value.__cause__ is cause
+
+
+def test_interrupted_index_rebuild_retries_without_recompiling_durable_sources(
+    monkeypatch, test_config
+):
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    compile_runs = 0
+    rebuild_runs = 0
+    successes: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(compile_cmd, "setup_logging", lambda verbose=False: None)
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(compile_cmd, "scan_raw_sources", lambda config: [source])
+    monkeypatch.setattr(compile_cmd, "get_provider", lambda config, tier="deep": object())
+    monkeypatch.setattr(compile_cmd, "print_info", lambda message: None)
+    monkeypatch.setattr(compile_cmd, "print_warning", lambda message: None)
+    monkeypatch.setattr(
+        compile_cmd,
+        "print_success",
+        lambda title, message: successes.append((title, message)),
+    )
+
+    async def durable_compile(sources, manifest, config, provider, dry_run, **kwargs):
+        nonlocal compile_runs
+        del sources, provider, dry_run, kwargs
+        compile_runs += 1
+        durable = _seed_durable_compile_state(
+            config,
+            source,
+            slugs=("concept-a", "concept-b", "concept-c", "concept-d"),
+        )
+        manifest.sources = durable.sources
+        manifest.wiki_articles = durable.wiki_articles
+        return compile_cmd.CompileResult(4, 0, 1, []), {
+            slug: [source.source_url] for slug in durable.wiki_articles
+        }
+
+    def interrupted_then_success(config, manifest, provider):
+        nonlocal rebuild_runs
+        del provider
+        rebuild_runs += 1
+        if rebuild_runs == 1:
+            raise _provider_exhausted()
+        links = "\n".join(f"- [[{slug}]]" for slug in manifest.wiki_articles)
+        _index_path(config).write_text(f"# Wiki Index\n\n{links}\n", encoding="utf-8")
+
+    monkeypatch.setattr(compile_cmd, "_run_compile_async", durable_compile)
+    monkeypatch.setattr(compile_cmd, "_rebuild_wiki_index", interrupted_then_success)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        compile_cmd.compile(full=False, dry_run=False, verbose=False, max_touches=5)
+    assert exc_info.value.exit_code == 1
+    assert compile_runs == 1
+    assert not _index_path(test_config).exists()
+    durable_source = read_manifest(test_config.vault_path).sources[source.source_url]
+
+    compile_cmd.compile(full=False, dry_run=False, verbose=False, max_touches=5)
+
+    assert compile_runs == 1
+    assert rebuild_runs == 2
+    assert read_manifest(test_config.vault_path).sources[source.source_url] == durable_source
+    assert set(compile_cmd.extract_wikilinks(_index_path(test_config).read_text())) == {
+        "concept-a",
+        "concept-b",
+        "concept-c",
+        "concept-d",
+    }
+    assert successes[-1][0] == "Wiki index repaired"
+    assert all(title != "All sources are up to date" for title, _message in successes)
+
+
+def test_compile_repairs_incomplete_index_using_normalized_wikilinks(
+    monkeypatch, test_config
+):
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    _seed_durable_compile_state(test_config, source)
+    index_path = _index_path(test_config)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(
+        "# Wiki Index\n\n- [[🗺️ Wiki/🧠 Concepts/CONCEPT-A.md#Overview|Concept A]]\n",
+        encoding="utf-8",
+    )
+    rebuilds = 0
+
+    monkeypatch.setattr(compile_cmd, "setup_logging", lambda verbose=False: None)
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(compile_cmd, "scan_raw_sources", lambda config: [source])
+    monkeypatch.setattr(compile_cmd, "get_provider", lambda config, tier="deep": object())
+    monkeypatch.setattr(compile_cmd, "print_success", lambda title, message: None)
+
+    async def must_not_compile(*args, **kwargs):
+        raise AssertionError("durable Raw source must not be recompiled")
+
+    def rebuild(config, manifest, provider):
+        nonlocal rebuilds
+        del provider
+        rebuilds += 1
+        _index_path(config).write_text(
+            "# Wiki Index\n\n- [[concept-a]]\n- [[concept-b]]\n", encoding="utf-8"
+        )
+
+    monkeypatch.setattr(compile_cmd, "_run_compile_async", must_not_compile)
+    monkeypatch.setattr(compile_cmd, "_rebuild_wiki_index", rebuild)
+
+    compile_cmd.compile(full=False, dry_run=False, verbose=False, max_touches=5)
+
+    assert rebuilds == 1
+    assert set(compile_cmd.extract_wikilinks(index_path.read_text())) == {
+        "concept-a",
+        "concept-b",
+    }
+
+
+def test_compile_repeated_index_repair_failure_stays_retryable(monkeypatch, test_config):
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    _seed_durable_compile_state(test_config, source)
+    index_path = _index_path(test_config)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    original = b"# Wiki Index\n\n- [[concept-a]]\n"
+    index_path.write_bytes(original)
+    attempts = 0
+
+    monkeypatch.setattr(compile_cmd, "setup_logging", lambda verbose=False: None)
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(compile_cmd, "scan_raw_sources", lambda config: [source])
+    monkeypatch.setattr(compile_cmd, "get_provider", lambda config, tier="deep": object())
+    monkeypatch.setattr(compile_cmd, "print_error", lambda message: None)
+
+    def fail_rebuild(config, manifest, provider):
+        nonlocal attempts
+        del config, manifest, provider
+        attempts += 1
+        raise _provider_exhausted()
+
+    monkeypatch.setattr(compile_cmd, "_rebuild_wiki_index", fail_rebuild)
+
+    for _ in range(2):
+        with pytest.raises(typer.Exit) as exc_info:
+            compile_cmd.compile(full=False, dry_run=False, verbose=False, max_touches=5)
+        assert exc_info.value.exit_code == 1
+        assert index_path.read_bytes() == original
+
+    assert attempts == 2
+
+
+def test_compile_complete_normalized_index_is_true_noop(monkeypatch, test_config):
+    app_home = test_config.vault_path.parent / f"{test_config.vault_path.name}-app-home"
+    app_log = app_home / ".local" / "share" / "vaultmind" / "vaultmind.log"
+    app_log.parent.mkdir(parents=True)
+    original_log = b'{"event":"previous command"}\n'
+    app_log.write_bytes(original_log)
+    stale_log_handle = open(app_log, "a", encoding="utf-8")  # noqa: SIM115
+    structlog.configure(
+        processors=[structlog.processors.JSONRenderer()],
+        logger_factory=structlog.PrintLoggerFactory(file=stale_log_handle),
+    )
+    monkeypatch.setenv("HOME", str(app_home))
+
+    raw_dir = test_config.vault_path / test_config.folders.raw
+    raw_dir.mkdir(parents=True)
+    raw_body = "# raw-a\n\nBody text"
+    raw_path = raw_dir / "raw-a.md"
+    raw_path.write_text(
+        "---\nsource: https://example.com/raw-a\n---\n\n" + raw_body,
+        encoding="utf-8",
+    )
+    source = RawSourceRecord(
+        path=raw_path,
+        relative_path=f"{test_config.folders.raw}/raw-a",
+        title="raw-a",
+        source_url="https://example.com/raw-a",
+        body=raw_body,
+        content_hash=content_hash(raw_body),
+        raw_tags=[],
+    )
+    _seed_durable_compile_state(test_config, source)
+    index_path = _index_path(test_config)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(
+        "# Wiki Index\n\n"
+        "- [[🗺️ Wiki/🧠 Concepts/CONCEPT-A.md#Overview|Concept A]]\n"
+        "- [[Concept-B^details|Concept B]]\n",
+        encoding="utf-8",
+    )
+    before = {
+        path.relative_to(test_config.vault_path): path.read_bytes()
+        for path in test_config.vault_path.rglob("*")
+        if path.is_file()
+    }
+    successes: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(
+        compile_cmd,
+        "get_provider",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("provider not needed")),
+    )
+    monkeypatch.setattr(
+        compile_cmd,
+        "print_success",
+        lambda title, message: successes.append((title, message)),
+    )
+
+    try:
+        compile_cmd.compile(full=False, dry_run=False, verbose=False, max_touches=5)
+    finally:
+        stale_log_handle.close()
+
+    after = {
+        path.relative_to(test_config.vault_path): path.read_bytes()
+        for path in test_config.vault_path.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
+    assert app_log.read_bytes() == original_log
+    assert successes == [("All sources are up to date", "Nothing to compile.")]
+
+
+def test_compile_dry_run_reports_index_repair_without_provider_or_writes(
+    monkeypatch, test_config
+):
+    app_home = test_config.vault_path.parent / f"{test_config.vault_path.name}-app-home"
+    app_state = app_home / ".local" / "share" / "vaultmind"
+    monkeypatch.setenv("HOME", str(app_home))
+    source = _raw_source(slug="raw-a", source_url="https://example.com/raw-a")
+    _seed_durable_compile_state(test_config, source)
+    before = {
+        path.relative_to(test_config.vault_path): path.read_bytes()
+        for path in test_config.vault_path.rglob("*")
+        if path.is_file()
+    }
+    successes: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(compile_cmd, "scan_raw_sources", lambda config: [source])
+    monkeypatch.setattr(
+        compile_cmd,
+        "get_provider",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("dry run provider call")),
+    )
+    monkeypatch.setattr(
+        compile_cmd,
+        "print_success",
+        lambda title, message: successes.append((title, message)),
+    )
+
+    compile_cmd.compile(full=False, dry_run=True, verbose=False, max_touches=5)
+
+    after = {
+        path.relative_to(test_config.vault_path): path.read_bytes()
+        for path in test_config.vault_path.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
+    assert not app_state.exists()
+    assert successes == [
+        ("Dry run", "No Raw sources would be compiled. Incomplete Wiki index would be rebuilt.")
+    ]
+
+
+def test_compile_repairs_missing_index_without_raw_sources(monkeypatch, test_config):
+    app_home = test_config.vault_path.parent / f"{test_config.vault_path.name}-app-home"
+    app_log = app_home / ".local" / "share" / "vaultmind" / "vaultmind.log"
+    monkeypatch.setenv("HOME", str(app_home))
+    _seed_durable_compile_state(test_config, source=None, slugs=("concept-a",))
+    rebuilds = 0
+    successes: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(compile_cmd, "load_config", lambda: test_config)
+    monkeypatch.setattr(compile_cmd, "get_provider", lambda config, tier="deep": object())
+    monkeypatch.setattr(compile_cmd, "print_warning", lambda message: None)
+    monkeypatch.setattr(
+        compile_cmd,
+        "print_success",
+        lambda title, message: successes.append((title, message)),
+    )
+
+    def rebuild(config, manifest, provider):
+        nonlocal rebuilds
+        del provider
+        rebuilds += 1
+        _index_path(config).parent.mkdir(parents=True, exist_ok=True)
+        _index_path(config).write_text("# Wiki Index\n\n- [[concept-a]]\n", encoding="utf-8")
+
+    monkeypatch.setattr(compile_cmd, "_rebuild_wiki_index", rebuild)
+
+    compile_cmd.compile(full=False, dry_run=False, verbose=False, max_touches=5)
+
+    assert rebuilds == 1
+    assert _index_path(test_config).is_file()
+    assert app_log.is_file()
+    assert "raw_folder_missing" in app_log.read_text(encoding="utf-8")
+    assert successes == [("Wiki index repaired", "No Raw sources needed compilation.")]
 
 
 def test_index_rebuild_propagates_provider_exhaustion_without_writing(test_config):
