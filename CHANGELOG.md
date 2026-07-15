@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Interrupted Wiki index rebuilds are naturally retried by the next incremental compile without recompiling already-current Raw sources.
+
 ## 0.2.1 - 2026-07-14
 
 ### Added

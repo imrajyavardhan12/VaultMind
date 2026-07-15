@@ -296,8 +296,17 @@ def test_evaluation_invokes_production_compile_for_each_phase_and_unchanged(
 @pytest.mark.parametrize("mutation", ["missing", "incomplete"])
 def test_index_rebuild_mutations_fail_the_evaluation(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     mutation: str,
 ) -> None:
+    fixture = tmp_path / "evaluation"
+    shutil.copytree(DEFAULT_FIXTURE_DIR, fixture)
+    replay_path = fixture / "replay.json"
+    replay = json.loads(replay_path.read_text(encoding="utf-8"))
+    index_rule = next(rule for rule in replay["rules"] if rule["id"] == "index-rebuild")
+    index_rule["responses"].append(index_rule["responses"][-1])
+    replay_path.write_text(json.dumps(replay, indent=2) + "\n", encoding="utf-8")
+
     production_rebuild = compile_command._rebuild_wiki_index
 
     if mutation == "missing":
@@ -323,7 +332,7 @@ def test_index_rebuild_mutations_fail_the_evaluation(
 
         monkeypatch.setattr(compile_command, "_rebuild_wiki_index", incomplete_rebuild)
 
-    report = run_evaluation()
+    report = run_evaluation(fixture)
 
     assert not report.passed
     failure_metrics = {failure.metric for failure in report.failures}

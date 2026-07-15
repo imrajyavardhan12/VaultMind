@@ -21,6 +21,7 @@ import yaml
 from vaultmind.ai.compiler import CompileResult, compile_sources, rebuild_index
 from vaultmind.ai.providers import Provider, ProviderExhaustedError, get_provider
 from vaultmind.config import AppConfig, load_config
+from vaultmind.core.linter import extract_wikilinks
 from vaultmind.core.manifest import (
     ManifestReadError,
     ManifestReconciliation,
@@ -38,7 +39,7 @@ from vaultmind.core.writer import write_markdown_page
 from vaultmind.schemas import Manifest, ManifestSource
 from vaultmind.utils.display import print_error, print_info, print_success, print_warning
 from vaultmind.utils.hashing import content_hash
-from vaultmind.utils.logging import setup_logging
+from vaultmind.utils.logging import setup_buffered_logging, setup_logging
 
 __all__ = ["reconcile_manifest"]
 
@@ -54,6 +55,32 @@ def _validate_max_touches(value: int) -> int:
 
 def _concepts_dir(config: AppConfig) -> Path:
     return config.vault_path / config.folders.wiki / config.folders.wiki_concepts
+
+
+def _wiki_index_is_incomplete(config: AppConfig, manifest: Manifest) -> bool:
+    """Return whether the index omits any disk-canonical manifest concept."""
+    if not manifest.wiki_articles:
+        return False
+
+    concepts_dir = _concepts_dir(config)
+    expected_slugs = {
+        slug.strip().lower()
+        for slug in manifest.wiki_articles
+        if (concepts_dir / f"{slug}.md").is_file()
+    }
+    if not expected_slugs:
+        return False
+
+    index_path = (
+        config.vault_path
+        / config.folders.wiki
+        / f"{config.folders.wiki_index}.md"
+    )
+    if not index_path.is_file():
+        return True
+
+    linked_slugs = set(extract_wikilinks(index_path.read_text(encoding="utf-8")))
+    return not expected_slugs.issubset(linked_slugs)
 
 
 def _report_reconciliation(
@@ -72,8 +99,6 @@ def _report_reconciliation(
 def _persist_repairs(
     config: AppConfig,
     reconciliation: ManifestReconciliation,
-    *,
-    provider: Provider | None,
 ) -> None:
     if not reconciliation.changed:
         return
@@ -83,8 +108,6 @@ def _persist_repairs(
         event="manifest repair",
         detail=f"{len(reconciliation.repairs)} repair(s)",
     )
-    if reconciliation.concept_membership_changed and provider is not None:
-        _rebuild_wiki_index(config, reconciliation.manifest, provider)
 
 
 def compile(
@@ -117,7 +140,17 @@ def compile(
 
 def _compile(*, full: bool, dry_run: bool, verbose: bool, max_touches: int) -> None:
     """Implement compile while the CLI boundary handles provider exhaustion."""
-    setup_logging(verbose=verbose)
+    preflight_logs = setup_buffered_logging()
+    logging_enabled = False
+
+    def enable_logging() -> None:
+        nonlocal logging_enabled
+        if logging_enabled:
+            return
+        setup_logging(verbose=verbose)
+        preflight_logs.replay()
+        logging_enabled = True
+
     config = load_config()
 
     try:
@@ -139,13 +172,28 @@ def _compile(*, full: bool, dry_run: bool, verbose: bool, max_touches: int) -> N
     )
     manifest = pre_reconciliation.manifest
     _report_reconciliation(pre_reconciliation, dry_run=dry_run)
+    index_rebuild_needed = (
+        pre_reconciliation.concept_membership_changed
+        or _wiki_index_is_incomplete(config, manifest)
+    )
 
     if not all_sources:
-        if not dry_run:
-            _persist_repairs(config, pre_reconciliation, provider=None)
-            if pre_reconciliation.concept_membership_changed:
+        if dry_run:
+            if index_rebuild_needed:
+                print_success(
+                    "Dry run",
+                    "No Raw sources would be compiled. Incomplete Wiki index would be rebuilt.",
+                )
+        else:
+            if pre_reconciliation.changed or index_rebuild_needed:
+                enable_logging()
+            _persist_repairs(config, pre_reconciliation)
+            if index_rebuild_needed:
                 provider = get_provider(config, tier="deep")
                 _rebuild_wiki_index(config, manifest, provider)
+                print_success(
+                    "Wiki index repaired", "No Raw sources needed compilation."
+                )
         print_warning(
             f"No raw sources found in {config.folders.raw}/. "
             "Add articles via Obsidian Web Clipper first."
@@ -172,19 +220,28 @@ def _compile(*, full: bool, dry_run: bool, verbose: bool, max_touches: int) -> N
 
     if not sources_to_compile:
         if dry_run:
-            print_success("Dry run", "No Raw sources would be compiled.")
-        elif pre_reconciliation.changed:
-            repair_provider = (
-                get_provider(config, tier="deep")
-                if pre_reconciliation.concept_membership_changed
-                else None
-            )
-            _persist_repairs(config, pre_reconciliation, provider=repair_provider)
-            print_success("Manifest repaired", "No Raw sources needed compilation.")
+            message = "No Raw sources would be compiled."
+            if index_rebuild_needed:
+                message += " Incomplete Wiki index would be rebuilt."
+            print_success("Dry run", message)
         else:
-            print_success("All sources are up to date", "Nothing to compile.")
+            if pre_reconciliation.changed or index_rebuild_needed:
+                enable_logging()
+            _persist_repairs(config, pre_reconciliation)
+            if index_rebuild_needed:
+                repair_provider = get_provider(config, tier="deep")
+                _rebuild_wiki_index(config, manifest, repair_provider)
+                print_success(
+                    "Wiki index repaired", "No Raw sources needed compilation."
+                )
+            elif pre_reconciliation.changed:
+                print_success("Manifest repaired", "No Raw sources needed compilation.")
+            else:
+                print_success("All sources are up to date", "Nothing to compile.")
         return
 
+    if not dry_run:
+        enable_logging()
     provider = get_provider(config, tier="deep")
     result, slug_to_urls = asyncio.run(
         _run_compile_async(
