@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 - 2026-07-15
 
 ### Fixed
 
-- Interrupted Wiki index rebuilds are naturally retried by the next incremental compile without recompiling already-current Raw sources.
+- Missing or incomplete Wiki index generation is naturally retried as an index-only repair by the next incremental compile without recompiling current Raw sources; true no-ops and index-repair-only dry runs remain provider-free and write-free through buffered preflight logging.
 
 ## 0.2.1 - 2026-07-14
 
