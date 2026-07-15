@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Generated concept articles now preserve only wikilinks to approved concept pages that existed on disk before compilation, degrading invented targets to readable text before atomic create or update writes.
+
 ## 0.2.2 - 2026-07-15
 
 ### Fixed

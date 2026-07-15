@@ -23,12 +23,14 @@ from vaultmind.ai.compiler import (
     _format_article_source_context,
     _markdown_h2_sections,
     _normalize_concept_body,
+    _sanitize_article_wikilinks,
     _split_page,
     _strip_frontmatter_block,
     _strip_model_page_wrappers,
     compile_sources,
 )
 from vaultmind.commands.compile import _run_compile_async
+from vaultmind.core.linter import WikiPage, check_broken_wikilinks, extract_wikilinks
 from vaultmind.core.manifest import read_manifest
 from vaultmind.core.raw_scanner import RawSourceRecord, scan_raw_sources
 from vaultmind.schemas import ConceptStatus, Manifest, WikiConceptEntry
@@ -490,6 +492,349 @@ Second source note.
     assert "Second source note." in normalized
     outside_fence = normalized[normalized.index("```", normalized.index("```") + 3) + 3 :]
     assert outside_fence.count(f"- {source}") == 1
+
+
+def test_article_wikilink_sanitizer_preserves_canonical_approved_forms_and_fences():
+    body = (
+        "Keep [[Approved]], [[Wiki/Concepts/APPROVED.md#Heading|Shown]], "
+        "[[approved^block]], [[approved.md]], and [[approved|Alias]].\n"
+        "Drop [[invented]], [[path/invented.md#Heading]], [[invented^block]], "
+        "and [[invented|Display Text]] while keeping sibling [[approved]].\n\n"
+        "~~~markdown\n"
+        "[[invented|Tilde Example]]\n"
+        "~~~\n"
+        "`````markdown\n"
+        "[[invented|Long Fence Example]]\n"
+        "```\n"
+        "[[still-in-long-fence]]\n"
+        "`````\n"
+    )
+
+    sanitized = _sanitize_article_wikilinks(body, {"approved"})
+
+    assert sanitized == (
+        "Keep [[Approved]], [[Wiki/Concepts/APPROVED.md#Heading|Shown]], "
+        "[[approved^block]], [[approved.md]], and [[approved|Alias]].\n"
+        "Drop invented, invented, invented, and Display Text while keeping sibling "
+        "[[approved]].\n\n"
+        "~~~markdown\n"
+        "[[invented|Tilde Example]]\n"
+        "~~~\n"
+        "`````markdown\n"
+        "[[invented|Long Fence Example]]\n"
+        "```\n"
+        "[[still-in-long-fence]]\n"
+        "`````\n"
+    )
+    assert set(extract_wikilinks(sanitized)) == {"approved"}
+
+
+def test_article_wikilink_sanitizer_rescans_nested_and_malformed_aliases():
+    body = (
+        "Nested [[bad|[[evil]]]], malformed [[[[bad]]]], surrounding [[[evil]]], "
+        "and alias [[bad|Display [[evil]] text]]; keep [[approved]], drop [[bad]]."
+    )
+
+    sanitized = _sanitize_article_wikilinks(body, {"approved"})
+
+    assert extract_wikilinks(sanitized) == ["approved"]
+    assert "[[evil]]" not in sanitized
+    assert "[[bad]]" not in sanitized
+    assert "Nested evil" in sanitized
+    assert "keep [[approved]], drop bad" in sanitized
+
+
+def test_article_prompts_bound_existing_concept_allowlist_and_prohibit_links_when_empty():
+    concept = WikiConceptEntry(
+        name="Prompt Contract",
+        status=ConceptStatus.NEW,
+        description="Prompt rules",
+        source_urls=[],
+    )
+    empty_provider = StubProvider(["article"])
+    asyncio.run(
+        _create_article(
+            concept,
+            {},
+            empty_provider,
+            approved_concept_slugs=set(),
+        )
+    )
+
+    assert "No concept slugs are approved" in empty_provider.prompts[0]
+    assert "Do not use any Obsidian wikilinks" in empty_provider.prompts[0]
+
+    bounded_provider = StubProvider(["article"])
+    asyncio.run(
+        _create_article(
+            concept,
+            {},
+            bounded_provider,
+            approved_concept_slugs={f"concept-{index:04d}" for index in range(1000)},
+        )
+    )
+
+    bounded_prompt = bounded_provider.prompts[0]
+    assert len(bounded_prompt) <= ARTICLE_PROMPT_TOTAL_CHARS
+    assert "concept-0000" in bounded_prompt
+    assert "concept-0999" not in bounded_prompt
+
+
+def test_compile_create_write_sanitizes_against_precompile_disk_concepts(test_config):
+    source = _raw_source(slug="wikilink-create", source_url="https://example.com/create")
+    _seed_existing_concept(
+        test_config,
+        slug="approved-existing",
+        title="Approved Existing",
+        body="# Approved Existing\n\n## Overview\n\nExisting.\n",
+    )
+    triage = json.dumps(
+        {
+            "concepts": [
+                {
+                    "name": "Fresh A",
+                    "status": "new",
+                    "description": "First concurrent concept",
+                    "source_urls": [source.source_url],
+                },
+                {
+                    "name": "Fresh B",
+                    "status": "new",
+                    "description": "Second concurrent concept",
+                    "source_urls": [source.source_url],
+                },
+            ]
+        }
+    )
+    provider = StubProvider(
+        [
+            triage,
+            triage,
+            (
+                "# Fresh A\n\n## Overview\n\n"
+                "Use [[APPROVED-EXISTING|Approved]], not [[fresh-b|Fresh B]] or "
+                "[[kv-caching]]. Nested [[bad|[[evil]]]] and [[[[bad]]]].\n\n"
+                "~~~markdown\n[[invented-tilde-example]]\n~~~\n"
+            ),
+            "# Fresh B\n\n## Overview\n\nFresh B.",
+        ]
+    )
+
+    result, _ = asyncio.run(
+        compile_sources(
+            [source],
+            Manifest(),
+            provider,
+            test_config.vault_path,
+            test_config.folders,
+            existing_concepts=[("approved-existing", "Approved Existing")],
+            max_touches=0,
+        )
+    )
+
+    fresh_a = (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / test_config.folders.wiki_concepts
+        / "fresh-a.md"
+    ).read_text(encoding="utf-8")
+    assert result.articles_created == 2
+    assert "[[APPROVED-EXISTING|Approved]]" in fresh_a
+    assert "not Fresh B or kv-caching" in fresh_a
+    assert "Nested evil and bad" in fresh_a
+    assert "[[fresh-b" not in fresh_a
+    assert "~~~markdown\n[[invented-tilde-example]]\n~~~" in fresh_a
+    assert extract_wikilinks(fresh_a) == ["approved-existing"]
+    persisted_page = WikiPage(relative_path="fresh-a", text=fresh_a, is_index=False)
+    assert check_broken_wikilinks(
+        [persisted_page], {"approved-existing", "fresh-a", "fresh-b"}
+    ) == []
+    assert all("approved-existing" in prompt for prompt in provider.prompts[2:])
+    assert all("Only use wikilinks whose target" in prompt for prompt in provider.prompts[2:])
+
+
+def test_compile_create_write_sanitizes_model_title_before_frontmatter_and_h1(
+    test_config,
+):
+    source = _raw_source(slug="title-wikilink", source_url="https://example.com/title")
+    model_title = "Fresh [[invented|Readable [[nested]]]]"
+    triage = json.dumps(
+        {
+            "concepts": [
+                {
+                    "name": model_title,
+                    "status": "new",
+                    "description": "Untrusted model title",
+                    "source_urls": [source.source_url],
+                }
+            ]
+        }
+    )
+    provider = StubProvider([triage, "## Overview\n\nArticle body."])
+
+    result, _ = asyncio.run(
+        compile_sources(
+            [source],
+            Manifest(),
+            provider,
+            test_config.vault_path,
+            test_config.folders,
+            max_touches=0,
+        )
+    )
+
+    article_path = (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / test_config.folders.wiki_concepts
+        / "fresh-inventedreadable-nested.md"
+    )
+    persisted = article_path.read_text(encoding="utf-8")
+    assert result.articles_created == 1
+    assert _extract_frontmatter(persisted)["title"] == "Fresh Readable nested"
+    assert "\n# Fresh Readable nested\n" in persisted
+    assert "[[invented" not in persisted
+    assert "[[nested" not in persisted
+    assert check_broken_wikilinks(
+        [
+            WikiPage(
+                relative_path="fresh-inventedreadable-nested",
+                text=persisted,
+                is_index=False,
+            )
+        ],
+        {"fresh-inventedreadable-nested"},
+    ) == []
+
+
+def test_compile_create_write_sanitizes_after_lone_cr_fence_before_persistence(
+    test_config,
+):
+    source = _raw_source(slug="cr-fence", source_url="https://example.com/cr-fence")
+    triage = json.dumps(
+        {
+            "concepts": [
+                {
+                    "name": "CR Fence",
+                    "status": "new",
+                    "description": "Lone CR fence endings",
+                    "source_urls": [source.source_url],
+                }
+            ]
+        }
+    )
+    model_article = (
+        "## Overview\n\nExample:\n"
+        "```text\r"
+        "[[fenced-example]]\r"
+        "```\r"
+        "After [[invented-after-cr|readable fallback]].\r"
+    )
+    assert extract_wikilinks(model_article) == ["invented-after-cr"]
+    provider = StubProvider([triage, model_article])
+
+    result, _ = asyncio.run(
+        compile_sources(
+            [source],
+            Manifest(),
+            provider,
+            test_config.vault_path,
+            test_config.folders,
+            max_touches=0,
+        )
+    )
+
+    article_path = (
+        test_config.vault_path
+        / test_config.folders.wiki
+        / test_config.folders.wiki_concepts
+        / "cr-fence.md"
+    )
+    persisted = article_path.read_text(encoding="utf-8")
+    assert result.articles_created == 1
+    assert "[[fenced-example]]" in persisted
+    assert "After readable fallback." in persisted
+    assert extract_wikilinks(persisted) == []
+    assert check_broken_wikilinks(
+        [WikiPage(relative_path="cr-fence", text=persisted, is_index=False)],
+        {"cr-fence"},
+    ) == []
+
+
+def test_compile_update_write_sanitizes_links_and_preserves_readable_markdown(test_config):
+    source = _raw_source(slug="wikilink-update", source_url="https://example.com/update")
+    target_path = _seed_existing_concept(
+        test_config,
+        slug="update-target",
+        title="Human Update Title",
+        body="# Human Update Title\n\n## Overview\n\nOld.\n",
+    )
+    _seed_existing_concept(
+        test_config,
+        slug="approved-related",
+        title="Approved Related",
+        body="# Approved Related\n\n## Overview\n\nRelated.\n",
+    )
+    triage = json.dumps(
+        {
+            "concepts": [
+                {
+                    "name": "Update Target",
+                    "status": "existing:update-target",
+                    "description": "Update existing article",
+                    "source_urls": [source.source_url],
+                    "merge_target": "update-target",
+                }
+            ]
+        }
+    )
+    model_update = (
+        "# Wrong Model Title\n\n## Overview\n\n"
+        "Keep **[[Wiki/Concepts/APPROVED-RELATED.md#Overview|Related]]**, "
+        "replace [[kv-caching|KV caching]] and [[path/linear-attention.md^detail]]. "
+        "Do not reconstruct [[bad|[[evil]]]] or [[[[bad]]]].\n\n"
+        "`````markdown\n"
+        "[[invented-long-fence-example]]\n"
+        "```\n"
+        "[[invented-after-short-run]]\n"
+        "`````\n"
+    )
+    provider = StubProvider([triage, model_update])
+
+    result, _ = asyncio.run(
+        compile_sources(
+            [source],
+            Manifest(),
+            provider,
+            test_config.vault_path,
+            test_config.folders,
+            existing_concepts=[
+                ("approved-related", "Approved Related"),
+                ("update-target", "Human Update Title"),
+            ],
+            max_touches=0,
+        )
+    )
+
+    updated = target_path.read_text(encoding="utf-8")
+    assert result.articles_updated == 1
+    assert "# Human Update Title" in updated
+    assert "**[[Wiki/Concepts/APPROVED-RELATED.md#Overview|Related]]**" in updated
+    assert "replace KV caching and linear-attention." in updated
+    assert "Do not reconstruct evil or bad" in updated
+    assert (
+        "`````markdown\n"
+        "[[invented-long-fence-example]]\n"
+        "```\n"
+        "[[invented-after-short-run]]\n"
+        "`````"
+    ) in updated
+    assert extract_wikilinks(updated) == ["approved-related"]
+    persisted_page = WikiPage(relative_path="update-target", text=updated, is_index=False)
+    assert check_broken_wikilinks(
+        [persisted_page], {"approved-related", "update-target"}
+    ) == []
+    assert "approved-related" in provider.prompts[1]
 
 
 def test_written_concept_enforces_page_contract_and_synchronizes_sources(test_config):

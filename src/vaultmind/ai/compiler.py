@@ -35,7 +35,7 @@ from vaultmind.ai.prompts import (
 )
 from vaultmind.ai.providers.base import Provider
 from vaultmind.config import FolderConfig
-from vaultmind.core.linter import extract_wikilinks
+from vaultmind.core.linter import extract_wikilinks, iter_markdown_regions
 from vaultmind.core.raw_scanner import RawSourceRecord, format_raw_source_packet
 from vaultmind.core.writer import write_markdown_page
 from vaultmind.schemas import ConceptStatus, Manifest, WikiConceptEntry
@@ -257,6 +257,14 @@ async def compile_sources(
     # clipped without a source URL are keyed by their vault-relative path.
     url_to_source = {_source_key(source): source for source in sources}
 
+    # Freeze the article-link allowlist before triage. Concepts proposed later
+    # in this run are deliberately ineligible, including concurrent siblings.
+    approved_concept_slugs = frozenset(
+        slug.strip().lower()
+        for slug, _title in (existing_concepts or [])
+        if slug.strip()
+    )
+
     # Stage 1: concept triage — uses RAW source content, not AI summaries
     log.info("compile_triage_start", count=len(sources))
     sources_payload = "\n\n---\n\n".join(format_raw_source_packet(s) for s in sources)
@@ -310,7 +318,13 @@ async def compile_sources(
                 log.info("compile_dry_run_create", concept=concept.name)
                 return (slug, slug, False, False, concept.source_urls)
             await _create_and_write_article(
-                slug, concept, url_to_source, provider, vault_path, folders
+                slug,
+                concept,
+                url_to_source,
+                provider,
+                vault_path,
+                folders,
+                approved_concept_slugs,
             )
             log.info("compile_article_done", slug=slug, status="created")
             return (slug, slug, True, False, concept.source_urls)
@@ -337,12 +351,19 @@ async def compile_sources(
                 provider,
                 vault_path,
                 folders,
+                approved_concept_slugs,
             )
             log.info("compile_article_done", slug=target_slug, status="updated")
             return (slug, target_slug, False, True, accepted_sources)
         else:
             await _create_and_write_article(
-                target_slug, concept, url_to_source, provider, vault_path, folders
+                target_slug,
+                concept,
+                url_to_source,
+                provider,
+                vault_path,
+                folders,
+                approved_concept_slugs,
             )
             log.info("compile_article_done", slug=target_slug, status="created_new")
             return (slug, target_slug, True, False, concept.source_urls)
@@ -405,8 +426,30 @@ ARTICLE_EXISTING_CONTENT_CHARS = 24000
 ARTICLE_PROMPT_TOTAL_CHARS = 50000
 ARTICLE_DESCRIPTION_CHARS = 4000
 ARTICLE_CONCEPT_NAME_CHARS = 500
+ARTICLE_CONCEPT_ALLOWLIST_LIMIT = 200
+ARTICLE_CONCEPT_ALLOWLIST_CHARS = 4000
 _SOURCE_LABEL_CHARS = 256
 _SOURCE_PACKET_MIN_CHARS = 96
+
+
+def _format_approved_concept_allowlist(approved_concept_slugs: set[str] | frozenset[str]) -> str:
+    """Return a deterministic, injection-safe, bounded prompt allowlist."""
+    normalized = sorted(
+        {slug.strip().lower() for slug in approved_concept_slugs if slug.strip()}
+    )
+    if not normalized:
+        return "No concept slugs are approved. Do not use any Obsidian wikilinks."
+
+    retained: list[str] = []
+    for slug in normalized[:ARTICLE_CONCEPT_ALLOWLIST_LIMIT]:
+        candidate = json.dumps([*retained, slug], ensure_ascii=False)
+        if len(candidate) > ARTICLE_CONCEPT_ALLOWLIST_CHARS:
+            break
+        retained.append(slug)
+
+    if not retained:
+        return "No concept slugs are approved. Do not use any Obsidian wikilinks."
+    return json.dumps(retained, ensure_ascii=False)
 
 
 def _bounded_source_references(
@@ -577,14 +620,20 @@ async def _create_article(
     concept: WikiConceptEntry,
     url_to_source: dict[str, RawSourceRecord],
     provider: Provider,
+    *,
+    approved_concept_slugs: set[str] | frozenset[str] | None = None,
 ) -> str:
     """LLM call to create a new wiki article from grounded Raw sources."""
     concept_name = _truncate_with_marker(concept.name, ARTICLE_CONCEPT_NAME_CHARS)
     description = _truncate_with_marker(concept.description, ARTICLE_DESCRIPTION_CHARS)
+    approved_concepts = _format_approved_concept_allowlist(
+        approved_concept_slugs or set()
+    )
     prompt_without_sources = COMPILE_ARTICLE_CREATE_PROMPT.format(
         concept_name=concept_name,
         description=description,
         source_context="",
+        approved_existing_concepts=approved_concepts,
     )
     source_context = _format_article_source_context(
         concept.source_urls,
@@ -595,6 +644,7 @@ async def _create_article(
         concept_name=concept_name,
         description=description,
         source_context=source_context,
+        approved_existing_concepts=approved_concepts,
     )
     assert len(prompt) <= ARTICLE_PROMPT_TOTAL_CHARS
 
@@ -608,6 +658,8 @@ async def _update_article(
     concept: WikiConceptEntry,
     url_to_source: dict[str, RawSourceRecord],
     provider: Provider,
+    *,
+    approved_concept_slugs: set[str] | frozenset[str] | None = None,
 ) -> str:
     """LLM call to update an existing wiki article with new source info."""
     bounded_existing = _truncate_with_marker(
@@ -615,9 +667,13 @@ async def _update_article(
         ARTICLE_EXISTING_CONTENT_CHARS,
         "\n\n[Existing article truncated]",
     )
+    approved_concepts = _format_approved_concept_allowlist(
+        approved_concept_slugs or set()
+    )
     prompt_without_sources = COMPILE_ARTICLE_UPDATE_PROMPT.format(
         existing_content=bounded_existing,
         new_sources="",
+        approved_existing_concepts=approved_concepts,
     )
     source_context = _format_article_source_context(
         concept.source_urls,
@@ -627,6 +683,7 @@ async def _update_article(
     prompt = COMPILE_ARTICLE_UPDATE_PROMPT.format(
         existing_content=bounded_existing,
         new_sources=source_context,
+        approved_existing_concepts=approved_concepts,
     )
     assert len(prompt) <= ARTICLE_PROMPT_TOTAL_CHARS
 
@@ -642,10 +699,29 @@ async def _create_and_write_article(
     provider: Provider,
     vault_path: Path,
     folders: FolderConfig,
+    approved_concept_slugs: set[str] | frozenset[str],
 ) -> None:
     """Create a wiki article via LLM and write it to disk."""
-    body = await _create_article(concept, url_to_source, provider)
-    _write_wiki_article(slug, body, concept.name, concept.source_urls, vault_path, folders)
+    body = await _create_article(
+        concept,
+        url_to_source,
+        provider,
+        approved_concept_slugs=approved_concept_slugs,
+    )
+    safe_title = _sanitize_article_title(
+        concept.name,
+        slug.replace("-", " ").title(),
+        approved_concept_slugs,
+    )
+    _write_wiki_article(
+        slug,
+        body,
+        safe_title,
+        concept.source_urls,
+        vault_path,
+        folders,
+        approved_concept_slugs,
+    )
 
 
 async def _update_and_write_article(
@@ -656,15 +732,30 @@ async def _update_and_write_article(
     provider: Provider,
     vault_path: Path,
     folders: FolderConfig,
+    approved_concept_slugs: set[str] | frozenset[str],
 ) -> None:
     """Update a wiki article via LLM and write it to disk."""
-    body = await _update_article(existing_content, concept, url_to_source, provider)
+    body = await _update_article(
+        existing_content,
+        concept,
+        url_to_source,
+        provider,
+        approved_concept_slugs=approved_concept_slugs,
+    )
     title = (
         _extract_frontmatter_title(existing_content)
         or _extract_h1_title(existing_content)
         or slug.replace("-", " ").title()
     )
-    _write_wiki_article(slug, body, title, concept.source_urls, vault_path, folders)
+    _write_wiki_article(
+        slug,
+        body,
+        title,
+        concept.source_urls,
+        vault_path,
+        folders,
+        approved_concept_slugs,
+    )
 
 
 REQUIRED_CONCEPT_SECTIONS = (
@@ -806,6 +897,87 @@ def _normalize_concept_body(body: str, title: str, sources: list[str]) -> str:
     return f"# {_single_line_title(title)}\n\n{model_content}"
 
 
+_WIKILINK_PATTERN = re.compile(r"\[\[([^\]]+)\]\]")
+
+
+def _wikilink_fallback(inner: str) -> str:
+    """Render an unauthorized wikilink as its readable alias or target label."""
+    target, separator, display = inner.partition("|")
+    if separator and display.strip():
+        return display.strip()
+
+    label = re.sub(r"[#^].*$", "", target).strip()
+    if label.endswith(".md"):
+        label = label[:-3]
+    if "/" in label:
+        label = label.rsplit("/", 1)[-1]
+    return label.strip()
+
+
+def _sanitize_wikilink_region(region: str, approved: set[str]) -> str:
+    """Sanitize a Markdown region known to be outside fenced code."""
+    # One or more removed wrappers can expose another [[...]] token. The
+    # strict length decrease gives a simple progress bound even for
+    # adversarial nesting and bracket adjacency.
+    max_passes = len(region) // 4 + 1
+    for _ in range(max_passes):
+        replacements = 0
+
+        def replace_link(match: re.Match[str]) -> str:
+            nonlocal replacements
+            normalized = extract_wikilinks(match.group(0))
+            if normalized and normalized[0] in approved:
+                return match.group(0)
+            replacements += 1
+            return _wikilink_fallback(match.group(1))
+
+        next_region = _WIKILINK_PATTERN.sub(replace_link, region)
+        if replacements == 0:
+            return region
+        if len(next_region) >= len(region):  # pragma: no cover - invariant guard
+            raise RuntimeError("wikilink sanitization did not make progress")
+        region = next_region
+
+    raise RuntimeError(  # pragma: no cover - implied by the strict length decrease
+        "wikilink sanitization exceeded its progress bound"
+    )
+
+
+def _sanitize_article_wikilinks(
+    body: str,
+    approved_concept_slugs: set[str] | frozenset[str],
+) -> str:
+    """Preserve only approved wikilinks outside fenced code regions."""
+    approved = {
+        slug.strip().lower() for slug in approved_concept_slugs if slug.strip()
+    }
+    sanitized = [
+        region if is_fenced else _sanitize_wikilink_region(region, approved)
+        for region, is_fenced in iter_markdown_regions(body)
+    ]
+
+    result = "".join(sanitized)
+    if set(extract_wikilinks(result)) - approved:  # pragma: no cover - invariant guard
+        raise RuntimeError("wikilink sanitization left an unauthorized target")
+    return result
+
+
+def _sanitize_article_title(
+    title: str,
+    fallback: str,
+    approved_concept_slugs: set[str] | frozenset[str],
+) -> str:
+    """Collapse and sanitize an untrusted model-authored article title."""
+    approved = {
+        slug.strip().lower() for slug in approved_concept_slugs if slug.strip()
+    }
+    single_line = _single_line_title(title, fallback)
+    # A title is inline text, never a fenced region, even if it starts with a
+    # fence marker before being placed in YAML or after the generated H1.
+    sanitized = _sanitize_wikilink_region(single_line, approved)
+    return _single_line_title(sanitized, fallback)
+
+
 def _write_wiki_article(
     slug: str,
     body: str,
@@ -813,6 +985,7 @@ def _write_wiki_article(
     source_urls: list[str],
     vault_path: Path,
     folders: FolderConfig,
+    approved_concept_slugs: set[str] | frozenset[str],
 ) -> None:
     """Write a wiki article to disk with frontmatter and atomic write."""
     wiki_concepts_dir = vault_path / folders.wiki / folders.wiki_concepts
@@ -825,7 +998,8 @@ def _write_wiki_article(
         context=f"page:{slug}",
     )
     safe_title = _single_line_title(title, slug.replace("-", " ").title())
-    content_body = _normalize_concept_body(body, safe_title, accepted_sources)
+    safe_body = _sanitize_article_wikilinks(body, approved_concept_slugs)
+    content_body = _normalize_concept_body(safe_body, safe_title, accepted_sources)
     import yaml
 
     class _IndentedSafeDumper(yaml.SafeDumper):

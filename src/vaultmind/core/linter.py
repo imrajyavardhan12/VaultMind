@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -77,41 +78,87 @@ class LintReport:
         return self.error_count > 0
 
 
+def iter_markdown_regions(text: str) -> Iterator[tuple[str, bool]]:
+    """Yield contiguous Markdown regions as ``(text, is_fenced_code)``.
+
+    This is the shared CommonMark fence contract for generated-article
+    sanitization and canonical Lint extraction: fences use backticks or
+    tildes, open with at least three markers after up to three spaces, and
+    close only with the same marker in a run at least as long as the opener.
+    """
+    region: list[str] = []
+    region_is_fenced = False
+    fence_char: str | None = None
+    fence_length = 0
+
+    for line in text.splitlines(keepends=True):
+        if line.endswith("\r\n"):
+            line_text = line[:-2]
+        elif line.endswith(("\n", "\r")):
+            line_text = line[:-1]
+        else:
+            line_text = line
+        is_fenced = fence_char is not None
+
+        if fence_char is None:
+            opener = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line_text)
+            if opener:
+                marker, remainder = opener.groups()
+                # CommonMark forbids backticks in a backtick fence info string.
+                if marker[0] == "~" or "`" not in remainder:
+                    fence_char = marker[0]
+                    fence_length = len(marker)
+                    is_fenced = True
+        else:
+            closer = re.fullmatch(
+                rf" {{0,3}}({re.escape(fence_char)}+)[ \t]*", line_text
+            )
+            if closer and len(closer.group(1)) >= fence_length:
+                fence_char = None
+                fence_length = 0
+
+        if region and is_fenced != region_is_fenced:
+            yield "".join(region), region_is_fenced
+            region = []
+        region.append(line)
+        region_is_fenced = is_fenced
+
+    if region:
+        yield "".join(region), region_is_fenced
+
+
 def extract_wikilinks(text: str) -> list[str]:
-    """Extract and normalize wikilinks from text.
+    """Extract and normalize wikilinks outside CommonMark fenced code.
 
     Handles [[target]], [[target|display]], paths, heading refs, block refs.
-    Ignores links inside fenced code blocks.
     Returns lowercased basenames.
     """
-    # Remove fenced code blocks
-    text_without_code = re.sub(r'```[\s\S]*?```', '', text)
-
-    # Find all wikilinks: [[...]]
-    pattern = r'\[\[([^\]]+)\]\]'
-    matches = re.findall(pattern, text_without_code)
-
+    pattern = re.compile(r"\[\[([^\]]+)\]\]")
     normalized = []
-    for match in matches:
-        # Split on | to get target part (before display text)
-        target = match.split('|')[0].strip()
 
-        # Remove heading and block refs
-        target = re.sub(r'[#^].*$', '', target).strip()
+    for region, is_fenced in iter_markdown_regions(text):
+        if is_fenced:
+            continue
+        for match in pattern.findall(region):
+            # Split on | to get target part (before display text)
+            target = match.split("|")[0].strip()
 
-        # Remove trailing .md
-        if target.endswith('.md'):
-            target = target[:-3]
+            # Remove heading and block refs
+            target = re.sub(r"[#^].*$", "", target).strip()
 
-        # Take the last path segment (basename)
-        if '/' in target:
-            target = target.split('/')[-1]
+            # Remove trailing .md
+            if target.endswith(".md"):
+                target = target[:-3]
 
-        # Lowercase and strip
-        target = target.strip().lower()
+            # Take the last path segment (basename)
+            if "/" in target:
+                target = target.split("/")[-1]
 
-        if target:
-            normalized.append(target)
+            # Lowercase and strip
+            target = target.strip().lower()
+
+            if target:
+                normalized.append(target)
 
     return normalized
 
