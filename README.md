@@ -15,9 +15,9 @@ than into macOS/Homebrew's system Python:
 
 ```bash
 brew install uv                       # Skip if uv is already installed
-uv tool install vaultmind==0.2.2
+uv tool install vaultmind==0.2.3
 uv tool update-shell                  # Restart the terminal if vm is not found
-vm version                            # VaultMind v0.2.2
+vm version                            # VaultMind v0.2.3
 vm init
 ```
 
@@ -299,15 +299,15 @@ See `vm <command> --help` for all flags.
 
 ## Installation
 
-The current PyPI and GitHub release is 0.2.2. Because VaultMind is a CLI
+The current PyPI and GitHub release is 0.2.3. Because VaultMind is a CLI
 application, install it with an isolated tool manager. The recommended method is
 [uv](https://docs.astral.sh/uv/):
 
 ```bash
 brew install uv                       # Skip if uv is already installed
-uv tool install vaultmind==0.2.2
+uv tool install vaultmind==0.2.3
 uv tool update-shell                  # Then restart the terminal if needed
-vm version                            # VaultMind v0.2.2
+vm version                            # VaultMind v0.2.3
 ```
 
 Alternatively, use pipx:
@@ -315,8 +315,8 @@ Alternatively, use pipx:
 ```bash
 brew install pipx
 pipx ensurepath                       # Then restart the terminal if needed
-pipx install vaultmind==0.2.2
-vm version                            # VaultMind v0.2.2
+pipx install vaultmind==0.2.3
+vm version                            # VaultMind v0.2.3
 ```
 
 A plain `pip install vaultmind` can be rejected by Homebrew-managed Python with
@@ -344,7 +344,7 @@ setup, protected-environment approval, release verification, and recovery guidan
 
 The config stores vault paths, folder names, and AI provider preferences. The `.env` stores API keys.
 
-### Runtime provider fallback (v0.2.2)
+### Runtime provider fallback (v0.2.3)
 
 VaultMind supports Anthropic, OpenAI, OpenRouter, and local Ollama at runtime.
 Every completion follows `ai.fallback_chain` in order. VaultMind constructs all
